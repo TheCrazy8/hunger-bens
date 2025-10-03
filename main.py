@@ -339,15 +339,14 @@ def askagain():
     while True:
         again = input("Run another simulation? (y/n): ").lower()
         if again == 'y':
-            run_simulation(seed=seedin, max_days=maxday, verbose=verb)
-            print("\nSimulation complete.")
+            mainloop()
         elif again == 'n':
             break
         else:
             print("Please enter 'y' or 'n'.")
     print("Thank you for using the Hunger Bens Simulator!")
 
-if __name__ == "__main__":
+def mainloop():
     # You can adjust the seed for reproducibility
     seedin = input("Enter a seed (or leave blank for random): ")
     seedin = int(seedin) if seedin.isdigit() else None
@@ -361,3 +360,6 @@ if __name__ == "__main__":
     print("You can rerun with the same seed for identical results.")
     print(seedin if seedin is not None else "Random seed used.")
     askagain()
+
+if __name__ == "__main__":
+    mainloop()
