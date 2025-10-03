@@ -40,7 +40,7 @@ class Tribute:
 # They are responsible for marking tributes dead or modifying state.
 def event_find_supplies(tributes: List[Tribute], rng: random.Random) -> List[str]:
     t = rng.choice(tributes)
-    item = rng.choice(["rope", "knife", "medical kit", "berries", "canteen", "gun", "bow", "bow tie"])
+    item = rng.choice(["rope", "knife", "medical kit", "berries", "canteen", "gun", "bow", "bow tie", "egg", "lighter", "flashlight", "map", "compass"])
     t.inventory.append(item)
     return [f"{t.name} finds a {item}."]
 
@@ -82,10 +82,21 @@ def event_alliance(tributes: List[Tribute], rng: random.Random) -> List[str]:
 def event_environment(tributes: List[Tribute], rng: random.Random) -> List[str]:
     t = rng.choice(tributes)
     hazard = rng.choice(["acid rain", "falling debris", "poison mist", "lava vent"])
+    effectofhazard = {"acid rain": "burned",
+        "falling debris": "crushed",
+        "poison mist": "poisoned",
+        "lava vent": "scorched"}[hazard]
+    # Moderate probability of death
     if rng.random() < 0.35:
         t.alive = False
-        return [f"{t.name} is overcome by {hazard}."]
+        return [f"{t.name} is {effectofhazard} by {hazard}."]
     return [f"{t.name} narrowly escapes a patch of {hazard}."]
+
+def event_heal(tributes: List[Tribute], rng: random.Random) -> List[str]:
+    t = rng.choice(tributes)
+    if "medical kit" in t.inventory:
+        return [f"{t.name} uses a medical kit to heal minor wounds."]
+    return [f"{t.name} looks for ways to heal but finds nothing."]
 
 DAY_EVENTS: List[Callable[[List[Tribute], random.Random], List[str]]] = [
     event_find_supplies,
@@ -98,6 +109,7 @@ NIGHT_EVENTS: List[Callable[[List[Tribute], random.Random], List[str]]] = [
     event_trap_failure,
     event_environment,
     event_small_skirmish,
+    event_heal,
 ]
 
 # -----------------------------
@@ -204,4 +216,9 @@ def run_simulation(seed: Optional[int] = None, max_days: int = 30, verbose: bool
 
 if __name__ == "__main__":
     # You can adjust the seed for reproducibility
-    run_simulation(seed=None, max_days=25, verbose=True)
+    seedin = input("Enter a seed (or leave blank for random): ")
+    seedin = int(seedin) if seedin.isdigit() else None
+    maxday = input("Enter max days (default 30): ")
+    maxday = int(maxday) if maxday.isdigit() else 30
+    verb = input("Verbose output? (y/n, default y): ").lower() != 'n'
+    run_simulation(seed=seedin, max_days=maxday, verbose=verb)
