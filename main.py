@@ -6,13 +6,14 @@ from typing import List, Dict, Callable, Optional
 # Data Setup
 # -----------------------------
 # Added age so the original loop (if you keep it) won't break.
+# Added district per user request.
 # You can expand this dictionary with more "bens" or other tributes.
 dicty: Dict[str, Dict[str, str]] = {
-    "ben1": {"name": "Ben", "gender": "male", "age": 16},
-    "ben2": {"name": "Ben's Mom", "gender": "female", "age": 45},
-    "ben3": {"name": "BenBot 3000", "gender": "object", "age": 2},  # Programmatic age :)
-    "ben4": {"name": "Ben's Twin", "gender": "male", "age": 16},
-    "ben5": {"name": "Ben's Cousin", "gender": "male", "age": 18},
+    "ben1": {"name": "Ben", "gender": "male", "age": 16, "district": 1},
+    "ben2": {"name": "Ben's Mom", "gender": "female", "age": 45, "district": 2},
+    "ben3": {"name": "BenBot 3000", "gender": "object", "age": 2, "district": 3},  # Programmatic age :)
+    "ben4": {"name": "Ben's Twin", "gender": "male", "age": 16, "district": 1},
+    "ben5": {"name": "Ben's Cousin", "gender": "male", "age": 18, "district": 4},
 }
 
 # -----------------------------
@@ -24,13 +25,14 @@ class Tribute:
     name: str
     gender: str
     age: int
+    district: int
     alive: bool = True
     kills: int = 0
     inventory: List[str] = field(default_factory=list)
 
     def __str__(self):
         status = "Alive" if self.alive else "Fallen"
-        return f"{self.name} ({status}, Kills: {self.kills})"
+        return f"{self.name} (D{self.district}, {status}, Kills: {self.kills})"
 
 
 # -----------------------------
@@ -38,9 +40,13 @@ class Tribute:
 # -----------------------------
 # Event functions take (alive_tributes, rng) and return a narrative string list.
 # They are responsible for marking tributes dead or modifying state.
+
 def event_find_supplies(tributes: List[Tribute], rng: random.Random) -> List[str]:
     t = rng.choice(tributes)
-    item = rng.choice(["rope", "knife", "medical kit", "berries", "canteen", "gun", "bow", "bow tie", "egg", "lighter", "flashlight", "map", "compass"])
+    item = rng.choice([
+        "rope", "knife", "medical kit", "berries", "canteen", "gun",
+        "bow", "bow tie", "egg", "lighter", "flashlight", "map", "compass"
+    ])
     t.inventory.append(item)
     return [f"{t.name} finds a {item}."]
 
@@ -49,20 +55,24 @@ def event_small_skirmish(tributes: List[Tribute], rng: random.Random) -> List[st
         return []
     a, b = rng.sample(tributes, 2)
     winner, loser = (a, b) if rng.random() < 0.5 else (b, a)
-    weapon = rng.choice([item for item in winner.inventory if item in ["knife", "gun", "bow", "bow tie"]])
-    if not weapon:
+    usable_weapons = [item for item in winner.inventory if item in ["knife", "gun", "bow", "bow tie"]]
+    if usable_weapons:
+        weapon = rng.choice(usable_weapons)
+    else:
         weapon = rng.choice(["fists", "rock", "stick"])
-    
-    weapon.act = {"fists": "pummels",
+    verb = {
+        "fists": "pummels",
         "rock": "bludgeons",
         "stick": "strikes",
         "knife": "slashes",
         "gun": "shoots",
         "bow": "shoots",
-        "bow tie": "dazzles"}[weapon]
+        "bow tie": "dazzles",
+        "spear": "impales",
+    }[weapon]
     loser.alive = False
     winner.kills += 1
-    return [f"{winner.name} {weapon.act} {loser.name} with a {weapon}. {loser.name} is eliminated."]
+    return [f"{winner.name} {verb} {loser.name} with {('a ' if weapon not in ['fists'] else '')}{weapon}. {loser.name} is eliminated."]
 
 def event_trap_failure(tributes: List[Tribute], rng: random.Random) -> List[str]:
     t = rng.choice(tributes)
@@ -81,11 +91,17 @@ def event_alliance(tributes: List[Tribute], rng: random.Random) -> List[str]:
 
 def event_environment(tributes: List[Tribute], rng: random.Random) -> List[str]:
     t = rng.choice(tributes)
-    hazard = rng.choice(["acid rain", "falling debris", "poison mist", "lava vent"])
-    effectofhazard = {"acid rain": "burned",
+    hazard = rng.choice(["acid rain", "falling debris", "poison mist", "lava vent", "wild animal", "flash flood", "earthquake", "forest fire"])
+    effectofhazard = {
+        "acid rain": "burned",
         "falling debris": "crushed",
         "poison mist": "poisoned",
-        "lava vent": "scorched"}[hazard]
+        "lava vent": "scorched",
+        "wild animal": "attacked",
+        "flash flood": "swept away",
+        "earthquake": "trampled",
+        "forest fire": "burned",
+    }[hazard]
     # Moderate probability of death
     if rng.random() < 0.35:
         t.alive = False
@@ -97,6 +113,7 @@ def event_heal(tributes: List[Tribute], rng: random.Random) -> List[str]:
     if "medical kit" in t.inventory:
         return [f"{t.name} uses a medical kit to heal minor wounds."]
     return [f"{t.name} looks for ways to heal but finds nothing."]
+
 
 DAY_EVENTS: List[Callable[[List[Tribute], random.Random], List[str]]] = [
     event_find_supplies,
@@ -112,9 +129,12 @@ NIGHT_EVENTS: List[Callable[[List[Tribute], random.Random], List[str]]] = [
     event_heal,
 ]
 
-# -----------------------------
-# Simulator
-# -----------------------------
+# Items available at the Cornucopia (Bloodbath)
+CORNUCOPIA_ITEMS = [
+    "knife", "gun", "bow", "medical kit", "rope", "canteen", "berries",
+    "map", "compass", "flashlight", "shield", "spear", "helmet"
+]
+
 class HungerBensSimulator:
     def __init__(
         self,
@@ -133,16 +153,19 @@ class HungerBensSimulator:
                 name=v["name"],
                 gender=v["gender"],
                 age=int(v.get("age", 0)),
+                district=int(v.get("district", 0)),
             )
             for k, v in tribute_data.items()
         ]
         self.log: List[str] = []
+        self._cornucopia_run = False  # ensure it only runs once
 
     def alive_tributes(self) -> List[Tribute]:
         return [t for t in self.tributes if t.alive]
 
     def run(self):
         self._log_intro()
+        self._cornucopia_phase()  # Bloodbath at the start
         while len(self.alive_tributes()) > 1 and self.day_count < self.max_days:
             self.day_count += 1
             self._simulate_day()
@@ -153,6 +176,69 @@ class HungerBensSimulator:
         self._announce_winner()
         return self.log
 
+    # -----------------------------
+    # Cornucopia / Bloodbath Phase
+    # -----------------------------
+    def _cornucopia_phase(self):
+        if self._cornucopia_run:
+            return
+        self._cornucopia_run = True
+        self._log("--- Cornucopia (Bloodbath) ---")
+        tribs = self.alive_tributes()
+        self.rng.shuffle(tribs)
+
+        # Each tribute chooses an action: fight, grab, flee
+        actions_summary: List[str] = []
+        # Track those already engaged in fights to avoid double-processing
+        engaged = set()
+
+        for t in tribs:
+            if not t.alive or t.key in engaged:
+                continue
+            roll = self.rng.random()
+            if roll < 0.30 and len(self.alive_tributes()) > 1:
+                # Attempt fight
+                opponents = [o for o in self.alive_tributes() if o.key != t.key and o.key not in engaged]
+                if opponents:
+                    opp = self.rng.choice(opponents)
+                    engaged.add(t.key)
+                    engaged.add(opp.key)
+                    # Decide winner
+                    winner, loser = (t, opp) if self.rng.random() < 0.5 else (opp, t)
+                    # Winner may grab an item
+                    loot = self.rng.choice(CORNUCOPIA_ITEMS)
+                    winner.inventory.append(loot)
+                    loser.alive = False
+                    winner.kills += 1
+                    actions_summary.append(f"{winner.name} overpowers {loser.name} at the Cornucopia and claims a {loot}.")
+                else:
+                    # fallback to grab
+                    item = self.rng.choice(CORNUCOPIA_ITEMS)
+                    t.inventory.append(item)
+                    actions_summary.append(f"{t.name} hastily grabs a {item}.")
+            elif roll < 0.70:
+                # Grab supplies
+                grabs = self.rng.randint(1, 2)
+                items = self.rng.sample(CORNUCOPIA_ITEMS, grabs)
+                for it in items:
+                    t.inventory.append(it)
+                items_str = ", ".join(items)
+                actions_summary.append(f"{t.name} secures {items_str} before retreating.")
+            else:
+                # Flee
+                actions_summary.append(f"{t.name} flees the Cornucopia empty-handed.")
+        for line in actions_summary:
+            self._log(line)
+
+        fallen = [t for t in self.tributes if not t.alive]
+        if fallen:
+            self._log("\nFallen in the Bloodbath:")
+            for f in fallen:
+                self._log(f" - {f.name}")
+
+    # -----------------------------
+    # Day/Night Simulation
+    # -----------------------------
     def _simulate_day(self):
         self._log(f"\n--- Day {self.day_count} ---")
         self._run_event_block(DAY_EVENTS, "day")
@@ -174,7 +260,8 @@ class HungerBensSimulator:
             event_func = self.rng.choice(event_pool)
             narrative = event_func(alive, self.rng)
             for line in narrative:
-                self._log(line)
+                if line:
+                    self._log(line)
         # Fallen tributes recap
         fallen = [t for t in self.tributes if not t.alive and f"(Fallen logged {t.key})" not in t.__dict__]
         if fallen:
@@ -188,7 +275,7 @@ class HungerBensSimulator:
         winners = self.alive_tributes()
         if winners:
             w = winners[0]
-            self._log(f"\nVICTOR: {w.name} (Kills: {w.kills})")
+            self._log(f"\nVICTOR: {w.name} (District {w.district}, Kills: {w.kills})")
         else:
             self._log("\nNo victor emerged. The arena claims all.")
 
@@ -198,7 +285,11 @@ class HungerBensSimulator:
 
     def _log_intro(self):
         self._log("Welcome to the Hunger Bens Simulation!")
-        self._log(f"Tributes entering the arena: {', '.join(t.name for t in self.tributes)}\n")
+        self._log(
+            "Tributes entering the arena: "
+            + ", ".join(f"{t.name} (D{t.district})" for t in self.tributes)
+            + "\n"
+        )
 
     def _log(self, message: str):
         self.log.append(message)
