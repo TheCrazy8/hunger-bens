@@ -19,7 +19,13 @@ dicty: Dict[str, Dict[str, str]] = {
     "trib8": {"name": "Eggworth Von Strudenstein", "gender": "male", "age": 30, "district": 7},
 }
 
-dicty.update({{f"trib{9+i}": {"name": f"{input('Enter name for tribute ' + str(9+i) + ': ')}}", {"gender": input("Enter a gender for tribute " + str(9+i) + ": ")}, "age": int(input("Enter an age for tribute " + str(9+i) + ": ")), "district": int(input("Enter a district number for tribute " + str(9+i) + ": "))} for i in range(0, 8)})
+def addnomen():
+    dicty.update({{f"trib{9+i}": {"name": f"{input('Enter name for tribute ' + str(9+i) + ': ')}}", {"gender": input("Enter a gender for tribute " + str(9+i) + ": ")}, "age": int(input("Enter an age for tribute " + str(9+i) + ": ")), "district": int(input("Enter a district number for tribute " + str(9+i) + ": "))} for i in range(0, 8)})
+    if input("Add more tributes? (y/n): ").lower() == 'y':
+        addnomen()
+    else:
+        return
+
 # -----------------------------
 # Models
 # -----------------------------
@@ -328,6 +334,7 @@ if __name__ == "__main__":
     maxday = input("Enter max days (default 30): ")
     maxday = int(maxday) if maxday.isdigit() else 30
     verb = input("Verbose output? (y/n, default y): ").lower() != 'n'
+    addnomen()
     run_simulation(seed=seedin, max_days=maxday, verbose=verb)
     print("\nSimulation complete.")
     print("You can rerun with the same seed for identical results.")
