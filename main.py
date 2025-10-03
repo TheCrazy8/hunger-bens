@@ -40,7 +40,7 @@ class Tribute:
 # They are responsible for marking tributes dead or modifying state.
 def event_find_supplies(tributes: List[Tribute], rng: random.Random) -> List[str]:
     t = rng.choice(tributes)
-    item = rng.choice(["rope", "knife", "medical kit", "berries", "canteen"])
+    item = rng.choice(["rope", "knife", "medical kit", "berries", "canteen", "gun", "bow", "bow tie"])
     t.inventory.append(item)
     return [f"{t.name} finds a {item}."]
 
