@@ -354,7 +354,8 @@ if __name__ == "__main__":
     maxday = input("Enter max days (default 30): ")
     maxday = int(maxday) if maxday.isdigit() else 30
     verb = input("Verbose output? (y/n, default y): ").lower() != 'n'
-    addnomen()
+    if input("Add custom tributes? (y/n): ").lower() == 'y':
+        addnomen()
     run_simulation(seed=seedin, max_days=maxday, verbose=verb)
     print("\nSimulation complete.")
     print("You can rerun with the same seed for identical results.")
