@@ -55,7 +55,7 @@ def event_small_skirmish(tributes: List[Tribute], rng: random.Random) -> List[st
         return []
     a, b = rng.sample(tributes, 2)
     winner, loser = (a, b) if rng.random() < 0.5 else (b, a)
-    usable_weapons = [item for item in winner.inventory if item in ["knife", "gun", "bow", "bow tie"]]
+    usable_weapons = [item for item in winner.inventory if item in ["knife", "gun", "bow", "bow tie", "spear"]]
     if usable_weapons:
         weapon = rng.choice(usable_weapons)
     else:
