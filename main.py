@@ -8,9 +8,11 @@ from typing import List, Dict, Callable, Optional
 # Added age so the original loop (if you keep it) won't break.
 # You can expand this dictionary with more "bens" or other tributes.
 dicty: Dict[str, Dict[str, str]] = {
-    "ben1": {"name": "Ben", "gender": "male", "age": 19},
+    "ben1": {"name": "Ben", "gender": "male", "age": 16},
     "ben2": {"name": "Ben's Mom", "gender": "female", "age": 45},
     "ben3": {"name": "BenBot 3000", "gender": "object", "age": 2},  # Programmatic age :)
+    "ben4": {"name": "Ben's Twin", "gender": "male", "age": 16},
+    "ben5": {"name": "Ben's Cousin", "gender": "male", "age": 18},
 }
 
 # -----------------------------
