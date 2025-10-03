@@ -49,9 +49,20 @@ def event_small_skirmish(tributes: List[Tribute], rng: random.Random) -> List[st
         return []
     a, b = rng.sample(tributes, 2)
     winner, loser = (a, b) if rng.random() < 0.5 else (b, a)
+    weapon = rng.choice([item for item in winner.inventory if item in ["knife", "gun", "bow", "bow tie"]])
+    if not weapon:
+        weapon = rng.choice(["fists", "rock", "stick"])
+    
+    weapon.act = {"fists": "pummels",
+        "rock": "bludgeons",
+        "stick": "strikes",
+        "knife": "slashes",
+        "gun": "shoots",
+        "bow": "shoots",
+        "bow tie": "dazzles"}[weapon]
     loser.alive = False
     winner.kills += 1
-    return [f"{winner.name} ambushes {loser.name}. {loser.name} is eliminated."]
+    return [f"{winner.name} {weapon.act} {loser.name} with a {weapon}. {loser.name} is eliminated."]
 
 def event_trap_failure(tributes: List[Tribute], rng: random.Random) -> List[str]:
     t = rng.choice(tributes)
