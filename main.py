@@ -20,7 +20,27 @@ dicty: Dict[str, Dict[str, str]] = {
 }
 
 def addnomen():
-    dicty.update({f"trib{9+i}": {"name": f"{input('Enter name for tribute ' + str(9+i) + ': ')}"}, {"gender": input("Enter a gender for tribute " + str(9+i) + ": ")}, {"age": int(input("Enter an age for tribute " + str(9+i) + ": "))}, {"district": int(input("Enter a district number for tribute " + str(9+i) + ": "))}})
+    key = input("Enter a unique key for the tribute (e.g., trib9): ")
+    if key in dicty:
+        print("Key already exists. Please choose a different key.")
+        return addnomen()
+    name = input("Enter the tribute's name: ")
+    if not name:
+        print("Name cannot be empty.")
+        return addnomen()
+    gender = input("Enter the tribute's gender: ")
+    if not gender:
+        print("Gender cannot be empty.")
+        return addnomen()
+    age = input("Enter the tribute's age (number): ")
+    if not age.isdigit():
+        print("Age must be a number.")
+        return addnomen()
+    district = input("Enter the tribute's district (number): ")
+    if not district.isdigit():
+        print("District must be a number.")
+        return addnomen()
+    dicty[key] = {"name": name, "gender": gender, "age": int(age), "district": int(district)}
     if input("Add more tributes? (y/n): ").lower() == 'y':
         addnomen()
     else:
