@@ -9,11 +9,14 @@ from typing import List, Dict, Callable, Optional
 # Added district per user request.
 # You can expand this dictionary with more "bens" or other tributes.
 dicty: Dict[str, Dict[str, str]] = {
-    "ben1": {"name": "Ben", "gender": "male", "age": 16, "district": 1},
-    "ben2": {"name": "Ben's Mom", "gender": "female", "age": 45, "district": 2},
-    "ben3": {"name": "BenBot 3000", "gender": "object", "age": 2, "district": 3},  # Programmatic age :)
-    "ben4": {"name": "Ben's Twin", "gender": "male", "age": 16, "district": 1},
-    "ben5": {"name": "Ben's Cousin", "gender": "male", "age": 18, "district": 4},
+    "trib1": {"name": "Ben", "gender": "male", "age": 16, "district": 1},
+    "trib2": {"name": "Ben's Mom", "gender": "female", "age": 45, "district": 2},
+    "trib3": {"name": "BenBot 3000", "gender": "object", "age": 2, "district": 3},  # Programmatic age :)
+    "trib4": {"name": "Ben's Twin", "gender": "male", "age": 16, "district": 1},
+    "trib5": {"name": "Ben's Cousin", "gender": "male", "age": 18, "district": 4},
+    "trib6": {"name": "Ben's Aunt", "gender": "female", "age": 40, "district": 5},
+    "trib7": {"name": "Ben's Uncle", "gender": "male", "age": 42, "district": 6},
+    "trib8": {"name": "Eggworth Von Strudenstein", "gender": "male", "age": 30, "district": 7},
 }
 
 # -----------------------------
