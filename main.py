@@ -305,6 +305,18 @@ def run_simulation(seed: Optional[int] = None, max_days: int = 30, verbose: bool
     sim.run()
     return sim
 
+def askagain():
+    while True:
+        again = input("Run another simulation? (y/n): ").lower()
+        if again == 'y':
+            run_simulation(seed=seedin, max_days=maxday, verbose=verb)
+            print("\nSimulation complete.")
+        elif again == 'n':
+            break
+        else:
+            print("Please enter 'y' or 'n'.")
+    print("Thank you for using the Hunger Bens Simulator!")
+
 if __name__ == "__main__":
     # You can adjust the seed for reproducibility
     seedin = input("Enter a seed (or leave blank for random): ")
@@ -313,3 +325,7 @@ if __name__ == "__main__":
     maxday = int(maxday) if maxday.isdigit() else 30
     verb = input("Verbose output? (y/n, default y): ").lower() != 'n'
     run_simulation(seed=seedin, max_days=maxday, verbose=verb)
+    print("\nSimulation complete.")
+    print("You can rerun with the same seed for identical results.")
+    print(seedin if seedin is not None else "Random seed used.")
+    askagain()
