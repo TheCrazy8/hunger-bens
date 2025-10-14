@@ -58,7 +58,7 @@ Use `--export-log myrun.json` or specify path in GUI to save full simulation det
 Providing a `--seed` or GUI seed ensures an identical event sequence across runs with the same roster and parameters.
 
 ## License
-- [Apache 2.0](https://github.com/TheCrazy8/hunger-bens/blob/main/LICENSE)
+- [Apache License 2.0](https://github.com/TheCrazy8/hunger-bens/blob/main/LICENSE)
   
 ## Web Version (GitHub Pages)
 This uses Pyodide to make the site functional and should load in most web browsers.
