@@ -74,3 +74,7 @@ Notes:
 - Browser version is intentionally lighter (fewer events) for fast load; it does not mirror full desktop simulation.
 - Roster JSON supports list or dict forms (same as CLI).
 - All computation runs in-browser; no server required.
+
+## Credit:
+
+- `https://github.com/rdbende/Sun-Valley-ttk-theme`: Windows gui theme
