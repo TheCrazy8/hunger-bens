@@ -63,7 +63,7 @@ Providing a `--seed` or GUI seed ensures an identical event sequence across runs
 ## Web Version (GitHub Pages)
 This uses Pyodide to make the site functional and should load in most web browsers.
 
-## Credit:
+## Credit
 
 - [Sun Valley](https://github.com/rdbende/Sun-Valley-ttk-theme): Windows gui theme
 - [Pyodide](https://pyodide.org/): Used for GitHub Pages functionality
