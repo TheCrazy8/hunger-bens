@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Hunger Bens Web Simulator</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+ body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#111; color:#eee; }
+ header { background:#222; padding:1rem; }
+ h1 { margin:0; font-size:1.4rem; }
+ main { padding:1rem; display:flex; flex-direction:column; gap:1rem; }
+ fieldset { border:1px solid #444; padding:0.75rem 1rem; }
+ legend { padding:0 .5rem; }
+ label { display:block; margin:.4rem 0 .15rem; font-size:.85rem; text-transform:uppercase; letter-spacing:.08em; }
+ input[type=text], input[type=number], textarea { width:100%; box-sizing:border-box; padding:.5rem; background:#1b1b1b; color:#eee; border:1px solid #333; border-radius:4px; font-family:monospace; }
+ textarea { min-height:140px; resize:vertical; }
+ button { background:#444; color:#eee; border:1px solid #555; padding:.55rem .9rem; border-radius:4px; cursor:pointer; font-weight:600; }
+ button:hover { background:#555; }
+ #log { background:#000; min-height:280px; white-space:pre-wrap; padding:.75rem; border:1px solid #333; font-family:monospace; overflow-y:auto; }
+ .row { display:flex; gap:1rem; flex-wrap:wrap; }
+ .grow { flex:1; }
+ footer { text-align:center; font-size:.7rem; padding:1rem 0 2rem; color:#888; }
+ a { color:#7cc3ff; }
+ .inline { display:inline-block; margin-right:.6rem; }
+</style>
+</head>
+<body>
+<header><h1>Hunger Bens Web Simulator (Pyodide)</h1></header>
+<main>
+  <fieldset>
+    <legend>Parameters</legend>
+    <div class="row">
+      <div class="grow">
+        <label for="seed">Seed (optional)</label>
+        <input type="text" id="seed" placeholder="e.g. 42"/>
+      </div>
+      <div>
+        <label for="days">Max Days</label>
+        <input type="number" id="days" value="30" min="1" max="200"/>
+      </div>
+      <div>
+        <label for="strict">Strict Shutdown Day</label>
+        <input type="number" id="strict" placeholder="(blank)" min="1" max="200"/>
+      </div>
+    </div>
+    <label for="roster">Custom Roster JSON (list or dict)</label>
+    <textarea id="roster" placeholder='[{"key":"x","name":"Alpha","age":20,"district":3}]'></textarea>
+    <div class="row">
+      <button id="runBtn">Run Simulation</button>
+      <button id="clearBtn" type="button">Clear Log</button>
+      <button id="downloadBtn" type="button" disabled>Download JSON Log</button>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Log Output</legend>
+    <div id="log" aria-live="polite"></div>
+  </fieldset>
+  <fieldset>
+    <legend>Status</legend>
+    <div id="status">Loading Pyodide...</div>
+  </fieldset>
+</main>
+<footer>
+  Built for static hosting on GitHub Pages. Core logic simplified for browser via <a href="https://pyodide.org/" target="_blank" rel="noopener">Pyodide</a>.
+</footer>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+<script>
+const statusEl = document.getElementById('status');
+const logEl = document.getElementById('log');
+const runBtn = document.getElementById('runBtn');
+const clearBtn = document.getElementById('clearBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+let pyodide = null;
+let lastRunData = null;
+
+function appendLog(line){
+  logEl.textContent += line + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+async function initPyodide(){
+  pyodide = await loadPyodide({indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/'});
+  statusEl.textContent = 'Pyodide loaded. Fetching simulator...';
+  // Load sim_web.py
+  const resp = await fetch('sim_web.py');
+  const code = await resp.text();
+  await pyodide.runPythonAsync(code);
+  statusEl.textContent = 'Ready.';
+}
+
+initPyodide().catch(e => {
+  statusEl.textContent = 'Failed to load Pyodide: ' + e;
+});
+
+clearBtn.addEventListener('click', () => { logEl.textContent=''; });
+
+runBtn.addEventListener('click', async () => {
+  if(!pyodide){ appendLog('Pyodide not loaded yet.'); return; }
+  logEl.textContent='';
+  statusEl.textContent='Running simulation...';
+  downloadBtn.disabled = true;
+  const seedVal = document.getElementById('seed').value.trim();
+  const daysVal = parseInt(document.getElementById('days').value,10) || 30;
+  const strictVal = document.getElementById('strict').value.trim();
+  const rosterTxt = document.getElementById('roster').value.trim();
+  const pySeed = seedVal !== '' && /^\d+$/.test(seedVal) ? parseInt(seedVal,10) : 'None';
+  const pyStrict = strictVal !== '' && /^\d+$/.test(strictVal) ? parseInt(strictVal,10) : 'None';
+
+  const pyCode = `from sim_web import run_simulation_web\nlog_lines=[]\n
+import sys\n
+def capture(line):\n    log_lines.append(line)\n
+seed=${pySeed}\nmax_days=${daysVal}\nstrict=${pyStrict}\nroster_json=${jsonEscape(rosterTxt)}\nrun_simulation_web(seed, max_days, strict, roster_json, capture)\nresult = {"timestamp":"", "seed":seed, "max_days":max_days, "strict_shutdown":strict, "log":log_lines}\n`;
+  try {
+    await pyodide.runPythonAsync(pyCode);
+    // Retrieve result
+    const result = pyodide.globals.get('result').toJs();
+    lastRunData = result;
+    appendLog('Simulation complete.');
+    statusEl.textContent='Complete.';
+    // Stream log lines
+    for(const line of result.log){ appendLog(line); }
+    downloadBtn.disabled = false;
+  } catch(e){
+    appendLog('Runtime error: ' + e);
+    statusEl.textContent='Error.';
+  }
+});
+
+function jsonEscape(text){
+  if(!text){ return 'None'; }
+  // Escape triple quotes and backslashes minimally for Python assignment
+  return JSON.stringify(text);
+}
+
+downloadBtn.addEventListener('click', () => {
+  if(!lastRunData){ return; }
+  const blob = new Blob([JSON.stringify(lastRunData, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'hunger_bens_run.json';
+  a.click();
+});
+</script>
+</body>
+</html>

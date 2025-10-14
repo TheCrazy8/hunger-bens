@@ -59,3 +59,18 @@ Providing a `--seed` or GUI seed ensures identical event sequence across runs wi
 
 ## License
 Unspecified; add a license file if distributing.
+
+## Web Version (GitHub Pages)
+This repository includes a simplified browser version under `docs/` using Pyodide.
+
+Deploy steps:
+1. Commit and push the `docs/` folder (already added).
+2. In GitHub repo settings enable Pages with Source = `main` branch `/docs` folder.
+3. After build, visit the published URL (e.g. `https://<username>.github.io/hunger-bens/`).
+4. Use the form to set seed, max days, strict shutdown, optional roster JSON, then Run.
+5. Download JSON log via the button after completion.
+
+Notes:
+- Browser version is intentionally lighter (fewer events) for fast load; it does not mirror full desktop simulation.
+- Roster JSON supports list or dict forms (same as CLI).
+- All computation runs in-browser; no server required.
