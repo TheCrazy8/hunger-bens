@@ -9,7 +9,9 @@ if os.name == "nt":
     import tkinter
     import tkinter.ttk as ttk
     from tkinter import scrolledtext, messagebox, filedialog
-    import sv_ttk
+    try: import sv_ttk
+    except ImportError: 
+        os.system("pip install sv_ttk")
 else:
     pass
 
