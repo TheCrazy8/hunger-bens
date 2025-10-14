@@ -5,6 +5,10 @@ import os
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Callable, Optional, Set, Tuple, Any
 from datetime import datetime
+if os.name == "nt":
+    import tkinter
+else:
+    pass
 
 # -----------------------------
 # Base Tribute Data (can be replaced/extended by JSON roster)
