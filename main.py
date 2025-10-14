@@ -1056,7 +1056,7 @@ def askagain(roster):
             print("Please enter 'y' or 'n'.")
     print("Thank you for using the Hunger Bens Simulator!")
 
-def mainloop(roster_override=None):
+def mainloop(roster_override=None, clear_screen: bool = True):
     seedin = input("Enter a seed (or leave blank for random): ").strip()
     seedin = int(seedin) if seedin.isdigit() else None
     maxday = input("Enter max days (default 30): ").strip()
@@ -1069,6 +1069,15 @@ def mainloop(roster_override=None):
         addnomen(working_dicty)
     export_q = input("Export run to JSON? (filename or blank): ").strip()
     export_file = export_q if export_q else None
+    if clear_screen:
+        # Clear screen so the simulation output starts at top of terminal for readability
+        try:
+            if os.name == 'nt':
+                os.system('cls')
+            else:
+                os.system('clear')
+        except Exception:
+            pass
     run_simulation(seed=seedin, max_days=maxday, verbose=verb, export_log=export_file, roster=working_dicty, strict_shutdown=strict)
     print("\nSimulation complete.")
     print("You can rerun with the same seed for identical results.")
@@ -1087,6 +1096,7 @@ def parse_args():
     parser.add_argument("--roster", type=str, help="Path to JSON roster file")
     parser.add_argument("--strict-shutdown", type=int, help="Force terminate after given day if multiple alive")
     parser.add_argument("--interactive", action="store_true", help="Use interactive loop instead of single run")
+    parser.add_argument("--no-clear", action="store_true", help="Disable clearing the screen before interactive simulation output")
     return parser.parse_args()
 
 def cli_entry():
@@ -1103,7 +1113,7 @@ def cli_entry():
             print(f"Failed to load roster: {e}")
             return
     if args.interactive:
-        mainloop(roster_override=roster_data)
+        mainloop(roster_override=roster_data, clear_screen=not args.no_clear)
     else:
         run_simulation(
             seed=args.seed,
@@ -1120,4 +1130,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         cli_entry()
     else:
-        mainloop()
+        mainloop(clear_screen=True)
