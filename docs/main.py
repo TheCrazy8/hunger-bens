@@ -1,17 +1,31 @@
 import random
 import json
+import sys
 import argparse
 import os
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Callable, Optional, Set, Tuple, Any
 from datetime import datetime
+def tryimporttheme():
+    try: import sv_ttk
+    except ImportError: 
+        os.system("pip install sv_ttk")
+        if os.system("pip install sv_ttk") == 1: # if installed successfully
+            # Check if GUI was initially requested
+            if "--gui" in sys.argv:
+                os.system("python main.py --gui")
+            else:
+                os.system("python main.py")
+            os._exit(0)
+        else: # if failed to install
+            tryimporttheme()
+
 if os.name == "nt":
     import tkinter
     import tkinter.ttk as ttk
     from tkinter import scrolledtext, messagebox, filedialog
-    try: import sv_ttk
-    except ImportError: 
-        os.system("pip install sv_ttk")
+    tryimporttheme()
+    import sv_ttk
 else:
     pass
 
