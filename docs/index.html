@@ -62,7 +62,7 @@
   </fieldset>
 </main>
 <footer>
-  Built for static hosting on GitHub Pages. Core logic simplified for browser via <a href="https://pyodide.org/" target="_blank" rel="noopener">Pyodide</a>.
+  Built for static hosting on GitHub Pages. Full simulator loaded via <a href="https://pyodide.org/" target="_blank" rel="noopener">Pyodide</a>.
 </footer>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
 <script>
@@ -73,6 +73,7 @@ const clearBtn = document.getElementById('clearBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 let pyodide = null;
 let lastRunData = null;
+let simulatorReady = false;
 
 function appendLog(line){
   logEl.textContent += line + '\n';
@@ -80,23 +81,27 @@ function appendLog(line){
 }
 
 async function initPyodide(){
-  pyodide = await loadPyodide({indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/'});
-  statusEl.textContent = 'Pyodide loaded. Fetching simulator...';
-  // Load main.py
-  const resp = await fetch('main.py');
-  const code = await resp.text();
-  await pyodide.runPythonAsync(code);
-  statusEl.textContent = 'Ready.';
+  try {
+    pyodide = await loadPyodide({indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/'});
+    statusEl.textContent = 'Pyodide loaded. Importing simulator...';
+    // Fetch main.py and import without running its CLI entry.
+    const resp = await fetch('main.py');
+    const code = await resp.text();
+    pyodide.FS.writeFile('main.py', code);
+    const importCode = `import os, importlib.util, sys\nos.environ['HUNGER_BENS_NO_INTERACTIVE']='1'\nspec = importlib.util.spec_from_file_location('hunger_main','main.py')\nmod = importlib.util.module_from_spec(spec)\nsys.modules['hunger_main']=mod\nspec.loader.exec_module(mod)`;
+    await pyodide.runPythonAsync(importCode);
+    simulatorReady = true;
+    statusEl.textContent = 'Ready.';
+  } catch(e){
+    statusEl.textContent = 'Failed to load Pyodide: ' + e;
+  }
 }
-
-initPyodide().catch(e => {
-  statusEl.textContent = 'Failed to load Pyodide: ' + e;
-});
+initPyodide();
 
 clearBtn.addEventListener('click', () => { logEl.textContent=''; });
 
 runBtn.addEventListener('click', async () => {
-  if(!pyodide){ appendLog('Pyodide not loaded yet.'); return; }
+  if(!pyodide || !simulatorReady){ appendLog('Simulator not loaded yet.'); return; }
   logEl.textContent='';
   statusEl.textContent='Running simulation...';
   downloadBtn.disabled = true;
@@ -104,21 +109,16 @@ runBtn.addEventListener('click', async () => {
   const daysVal = parseInt(document.getElementById('days').value,10) || 30;
   const strictVal = document.getElementById('strict').value.trim();
   const rosterTxt = document.getElementById('roster').value.trim();
-  const pySeed = seedVal !== '' && /^\d+$/.test(seedVal) ? parseInt(seedVal,10) : 'None';
-  const pyStrict = strictVal !== '' && /^\d+$/.test(strictVal) ? parseInt(strictVal,10) : 'None';
+  const pySeedLiteral = seedVal !== '' && /^\d+$/.test(seedVal) ? seedVal : 'None';
+  const pyStrictLiteral = strictVal !== '' && /^\d+$/.test(strictVal) ? strictVal : 'None';
 
-  const pyCode = `from sim_web import run_simulation_web\nlog_lines=[]\n
-import sys\n
-def capture(line):\n    log_lines.append(line)\n
-seed=${pySeed}\nmax_days=${daysVal}\nstrict=${pyStrict}\nroster_json=${jsonEscape(rosterTxt)}\nrun_simulation_web(seed, max_days, strict, roster_json, capture)\nresult = {"timestamp":"", "seed":seed, "max_days":max_days, "strict_shutdown":strict, "log":log_lines}\n`;
+  const pyCode = `from hunger_main import run_simulation\nimport json\nlog_lines=[]\nseed=${pySeedLiteral}\nmax_days=${daysVal}\nstrict=${pyStrictLiteral}\nroster_json=${jsonEscape(rosterTxt)}\nroster=None\nif roster_json not in (None, '', 'None'):\n    try:\n        data=json.loads(roster_json)\n        if isinstance(data, list):\n            roster={f'user{idx+1}': val for idx,val in enumerate(data)}\n        elif isinstance(data, dict):\n            roster=data\n    except Exception as e:\n        log_lines.append(f'Roster parse error: {e}')\n\ndef capture(line):\n    log_lines.append(line)\n\nsim = run_simulation(seed=seed if seed is not None else None, max_days=max_days, verbose=True, roster=roster, strict_shutdown=strict if strict is not None else None, log_callback=capture)\ntry:\n    alliances = sim.alliances.to_dict() if hasattr(sim, 'alliances') else {}\n    tributes_out = []\n    if hasattr(sim, 'tributes'):\n        for t in sim.tributes:\n            td = getattr(sim, '_tribute_to_dict', lambda x: x.__dict__)(t)\n            tributes_out.append(td)\n    death_log = getattr(sim, 'death_log', [])\n    stats = getattr(sim, 'history_stats', {})\nexcept Exception as e:\n    alliances = {}\n    tributes_out = []\n    death_log = []\n    stats = {}\n    log_lines.append(f'Extraction error: {e}')\nresult = {"seed": seed, "max_days": max_days, "strict_shutdown": strict, "log": log_lines, "alliances": alliances, "tributes": tributes_out, "death_log": death_log, "stats": stats}\n`;
   try {
     await pyodide.runPythonAsync(pyCode);
-    // Retrieve result
     const result = pyodide.globals.get('result').toJs();
     lastRunData = result;
     appendLog('Simulation complete.');
     statusEl.textContent='Complete.';
-    // Stream log lines
     for(const line of result.log){ appendLog(line); }
     downloadBtn.disabled = false;
   } catch(e){
@@ -129,7 +129,6 @@ seed=${pySeed}\nmax_days=${daysVal}\nstrict=${pyStrict}\nroster_json=${jsonEscap
 
 function jsonEscape(text){
   if(!text){ return 'None'; }
-  // Escape triple quotes and backslashes minimally for Python assignment
   return JSON.stringify(text);
 }
 
