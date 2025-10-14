@@ -77,4 +77,4 @@ Notes:
 
 ## Credit:
 
-- [https://github.com/rdbende/Sun-Valley-ttk-theme]: Windows gui theme
+- [https://github.com/rdbende/Sun-Valley-ttk-theme](Sun Valley): Windows gui theme
