@@ -81,8 +81,8 @@ function appendLog(line){
 async function initPyodide(){
   pyodide = await loadPyodide({indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/'});
   statusEl.textContent = 'Pyodide loaded. Fetching simulator...';
-  // Load sim_web.py
-  const resp = await fetch('sim_web.py');
+  // Load main.py
+  const resp = await fetch('main.py');
   const code = await resp.text();
   await pyodide.runPythonAsync(code);
   statusEl.textContent = 'Ready.';
