@@ -7,6 +7,8 @@ from typing import List, Dict, Callable, Optional, Set, Tuple, Any
 from datetime import datetime
 if os.name == "nt":
     import tkinter
+    import tkinter.ttk as ttk
+    from tkinter import scrolledtext, messagebox, filedialog
 else:
     pass
 
@@ -673,6 +675,7 @@ class HungerBensSimulator:
         verbose: bool = True,
         export_log: Optional[str] = None,
         strict_shutdown: Optional[int] = None,
+        log_callback: Optional[Callable[[str], None]] = None,
     ):
         self.rng = random.Random(seed)
         self.seed = seed
@@ -680,6 +683,7 @@ class HungerBensSimulator:
         self.verbose = verbose
         self.day_count = 0
         self.strict_shutdown = strict_shutdown
+        self._log_callback = log_callback
         self.tributes: List[Tribute] = [
             Tribute(
                 key=k,
@@ -708,6 +712,12 @@ class HungerBensSimulator:
         self.log.append(message)
         if self.verbose:
             print(message)
+        if self._log_callback:
+            try:
+                self._log_callback(message)
+            except Exception:
+                # Fail silently so simulation continues even if GUI callback breaks
+                pass
 
     # --- Simulation Control ---
     def run(self):
@@ -1036,6 +1046,7 @@ def run_simulation(
     export_log: Optional[str] = None,
     roster: Optional[Dict[str, Dict[str, Any]]] = None,
     strict_shutdown: Optional[int] = None,
+    log_callback: Optional[Callable[[str], None]] = None,
 ):
     tribute_source = roster if roster else dicty
     sim = HungerBensSimulator(
@@ -1045,9 +1056,127 @@ def run_simulation(
         verbose=verbose,
         export_log=export_log,
         strict_shutdown=strict_shutdown,
+        log_callback=log_callback,
     )
     sim.run()
     return sim
+
+# -----------------------------
+# Windows-only Tkinter GUI
+# -----------------------------
+if os.name == 'nt':
+    class HungerBensGUI:
+        def __init__(self, root):
+            self.root = root
+            root.title("Hunger Bens Simulator")
+            self._build_widgets()
+            self.current_sim: Optional[HungerBensSimulator] = None
+            self.roster_override: Optional[Dict[str, Dict[str, Any]]] = None
+
+        def _build_widgets(self):
+            frm = ttk.Frame(self.root, padding=10)
+            frm.grid(row=0, column=0, sticky='nsew')
+            self.root.columnconfigure(0, weight=1)
+            self.root.rowconfigure(1, weight=1)
+
+            # Inputs
+            ttk.Label(frm, text="Seed:").grid(row=0, column=0, sticky='w')
+            self.seed_entry = ttk.Entry(frm, width=12)
+            self.seed_entry.grid(row=0, column=1, sticky='w')
+
+            ttk.Label(frm, text="Max Days:").grid(row=0, column=2, sticky='w')
+            self.days_entry = ttk.Entry(frm, width=6)
+            self.days_entry.insert(0, '30')
+            self.days_entry.grid(row=0, column=3, sticky='w')
+
+            ttk.Label(frm, text="Strict Shutdown Day:").grid(row=1, column=0, sticky='w')
+            self.strict_entry = ttk.Entry(frm, width=12)
+            self.strict_entry.grid(row=1, column=1, sticky='w')
+
+            self.verbose_var = tkinter.BooleanVar(value=True)
+            ttk.Checkbutton(frm, text="Verbose", variable=self.verbose_var).grid(row=1, column=2, columnspan=2, sticky='w')
+
+            ttk.Label(frm, text="Export Log File:").grid(row=2, column=0, sticky='w')
+            self.export_entry = ttk.Entry(frm, width=25)
+            self.export_entry.grid(row=2, column=1, columnspan=2, sticky='we')
+            ttk.Button(frm, text="Browse", command=self._browse_export).grid(row=2, column=3, sticky='w')
+
+            # Roster load
+            ttk.Label(frm, text="Custom Roster JSON:").grid(row=3, column=0, sticky='w')
+            self.roster_entry = ttk.Entry(frm, width=25)
+            self.roster_entry.grid(row=3, column=1, columnspan=2, sticky='we')
+            ttk.Button(frm, text="Load", command=self._load_roster).grid(row=3, column=3, sticky='w')
+
+            # Run controls
+            btn_frame = ttk.Frame(frm)
+            btn_frame.grid(row=4, column=0, columnspan=4, pady=(8,4), sticky='we')
+            ttk.Button(btn_frame, text="Run Simulation", command=self._run).grid(row=0, column=0, padx=4)
+            ttk.Button(btn_frame, text="Clear Output", command=self._clear_output).grid(row=0, column=1, padx=4)
+            ttk.Button(btn_frame, text="Quit", command=self.root.quit).grid(row=0, column=2, padx=4)
+
+            # Output area
+            self.output = scrolledtext.ScrolledText(self.root, wrap='word', height=30)
+            self.output.grid(row=1, column=0, sticky='nsew')
+            self.root.rowconfigure(1, weight=1)
+            self.root.columnconfigure(0, weight=1)
+
+        def _browse_export(self):
+            path = filedialog.asksaveasfilename(defaultextension='.json', filetypes=[('JSON','*.json')])
+            if path:
+                self.export_entry.delete(0, 'end')
+                self.export_entry.insert(0, path)
+
+        def _load_roster(self):
+            path = filedialog.askopenfilename(filetypes=[('JSON','*.json')])
+            if not path:
+                return
+            try:
+                data = load_roster_json(path)
+                self.roster_override = data
+                self.roster_entry.delete(0,'end')
+                self.roster_entry.insert(0, path)
+                messagebox.showinfo("Roster Loaded", f"Loaded {len(data)} tributes")
+            except Exception as e:
+                messagebox.showerror("Roster Error", f"Failed to load roster: {e}")
+
+        def _append_log(self, line: str):
+            self.output.insert('end', line + '\n')
+            self.output.see('end')
+
+        def _clear_output(self):
+            self.output.delete('1.0', 'end')
+
+        def _run(self):
+            # Parse inputs
+            seed_txt = self.seed_entry.get().strip()
+            seed = int(seed_txt) if seed_txt.isdigit() else None
+            days_txt = self.days_entry.get().strip()
+            try:
+                max_days = int(days_txt) if days_txt else 30
+            except ValueError:
+                messagebox.showerror("Input Error", "Max Days must be an integer.")
+                return
+            strict_txt = self.strict_entry.get().strip()
+            strict = int(strict_txt) if strict_txt.isdigit() else None
+            export_file = self.export_entry.get().strip() or None
+            verbose = self.verbose_var.get()
+
+            self._clear_output()
+            self._append_log("Launching simulation...")
+            try:
+                self.current_sim = run_simulation(
+                    seed=seed,
+                    max_days=max_days,
+                    verbose=verbose,
+                    export_log=export_file,
+                    roster=self.roster_override,
+                    strict_shutdown=strict,
+                    log_callback=self._append_log,
+                )
+                self._append_log("Simulation complete.")
+            except Exception as e:
+                messagebox.showerror("Run Error", f"Simulation failed: {e}")
+
 
 def askagain(roster):
     while True:
@@ -1101,6 +1230,8 @@ def parse_args():
     parser.add_argument("--strict-shutdown", type=int, help="Force terminate after given day if multiple alive")
     parser.add_argument("--interactive", action="store_true", help="Use interactive loop instead of single run")
     parser.add_argument("--no-clear", action="store_true", help="Disable clearing the screen before interactive simulation output")
+    if os.name == 'nt':
+        parser.add_argument("--gui", action="store_true", help="Launch Tkinter GUI (Windows only)")
     return parser.parse_args()
 
 def cli_entry():
@@ -1116,6 +1247,13 @@ def cli_entry():
         except Exception as e:
             print(f"Failed to load roster: {e}")
             return
+    # GUI mode
+    if os.name == 'nt' and getattr(args, 'gui', False):
+        import tkinter
+        root = tkinter.Tk()
+        gui = HungerBensGUI(root)
+        root.mainloop()
+        return
     if args.interactive:
         mainloop(roster_override=roster_data, clear_screen=not args.no_clear)
     else:
