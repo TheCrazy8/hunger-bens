@@ -78,3 +78,4 @@ Notes:
 ## Credit:
 
 - [Sun Valley](https://github.com/rdbende/Sun-Valley-ttk-theme): Windows gui theme
+- [Pyodide](https://pyodide.org/): Used for GitHub Pages functionality
