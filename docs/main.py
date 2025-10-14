@@ -1062,13 +1062,12 @@ def addnomen(dicty_ref: Dict[str, Dict[str, Any]]):
 #   "weapons": {"laser spoon": "zaps"},             # weapon name -> verb
 #   "items": ["force field", "decoy duck"],         # extra supply items
 #   "hazards": {"gravity well": "crushed"},        # hazard -> effect keyword
-#   "events_module": "path/to/events_extra.py"      # Python file exporting callables matching signature
 # }
 # or separate flags per file.
 
 def load_custom_content(path: str):
     """Load custom content definitions from JSON.
-    Returns dict with potential keys: weapons, items, hazards, events_module
+    Returns dict with potential keys: weapons, items, hazards
     """
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -1107,41 +1106,6 @@ def integrate_custom_content(content: Dict[str, Any]):
             if hz not in HAZARDS:
                 HAZARDS.append(hz)
             HAZARD_EFFECTS[hz] = effect
-    # Events module (dynamic import)
-    module_path = content.get('events_module')
-    if isinstance(module_path, str) and os.path.isfile(module_path):
-        try:
-            spec = importlib.util.spec_from_file_location("_user_events_mod", module_path)
-            mod = importlib.util.module_from_spec(spec)
-            assert spec.loader is not None
-            spec.loader.exec_module(mod)
-            # Expect attributes: DAY_EVENTS_EXTRA, NIGHT_EVENTS_EXTRA, GLOBAL_EVENTS_EXTRA (each iterable of callables)
-            day_extra = getattr(mod, 'DAY_EVENTS_EXTRA', [])
-            night_extra = getattr(mod, 'NIGHT_EVENTS_EXTRA', [])
-            global_extra = getattr(mod, 'GLOBAL_EVENTS_EXTRA', [])
-            # Basic validation of signature count of params (loose)
-            def _valid(fn):
-                if not callable(fn): return False
-                try:
-                    import inspect
-                    sig = inspect.signature(fn)
-                    return len(sig.parameters) >= 3
-                except Exception:
-                    return False
-            added_day = [fn for fn in day_extra if _valid(fn)]
-            added_night = [fn for fn in night_extra if _valid(fn)]
-            added_global = [fn for fn in global_extra if _valid(fn)]
-            DAY_EVENTS.extend(added_day)
-            NIGHT_EVENTS.extend(added_night)
-            GLOBAL_EVENTS.extend(added_global)
-            # Provide default weights for new events if absent
-            for fn in added_day + added_night:
-                if fn not in BASE_EVENT_WEIGHTS:
-                    BASE_EVENT_WEIGHTS[fn] = 0.7
-            print(f"Integrated custom events: day={len(added_day)}, night={len(added_night)}, global={len(added_global)}")
-        except Exception as e:
-            print(f"Failed to import custom events module: {e}")
-
 
 # -----------------------------
 # Convenience Runner
