@@ -143,6 +143,38 @@ def _a_or_an(item: str) -> str:
     return f"{article} {item}"
 
 # -----------------------------
+# Status Variant System (adds descriptive variety)
+# -----------------------------
+# Certain status tags (non-critical ones) now have variant synonyms for flavor.
+# We maintain a mapping of a canonical base tag to its possible variants. Critical tags
+# like 'fallen' and 'wounded' remain unchanged for programmatic clarity.
+STATUS_VARIANTS: Dict[str, List[str]] = {
+    "frustrated": ["frustrated", "exasperated", "annoyed", "irritated"],
+    "shaken": ["shaken", "rattled", "unnerved", "disturbed"],
+    "singed": ["singed", "scorched", "charred"],
+    "disoriented": ["disoriented", "confused", "dazed", "lost"],
+}
+
+VARIANT_LOOKUP: Dict[str, str] = {variant: base for base, arr in STATUS_VARIANTS.items() for variant in arr}
+
+def add_status_variant(t: "Tribute", base_tag: str, rng: random.Random):
+    """Add a status variant for the given base tag.
+
+    - If the base tag has variants and the tribute does not already possess ANY variant
+      from that group, choose one randomly.
+    - If the tribute already has one variant from the group, do nothing (avoid clutter).
+    - If the base tag has no variants registered, fall back to normal add_status.
+    """
+    variants = STATUS_VARIANTS.get(base_tag)
+    if not variants:
+        t.add_status(base_tag)
+        return
+    if any(v in t.status for v in variants):  # already has a variant of this group
+        return
+    choice = rng.choice(variants)
+    t.add_status(choice)
+
+# -----------------------------
 # Data Models
 # -----------------------------
 @dataclass
@@ -282,7 +314,7 @@ def event_trap_failure(tributes: List[Tribute], rng: random.Random, sim) -> List
     if rng.random() < base:
         _kill(t, "botched trap")
         return [f"{t.name} tinkers with an over‑complicated trap; a spring snaps and ends their run."]
-    t.add_status("frustrated")
+    add_status_variant(t, "frustrated", rng)
     t.adjust_morale(-1)
     return [f"{t.name}'s elaborate trap collapses harmlessly."]
 
@@ -303,7 +335,7 @@ def event_environment(tributes: List[Tribute], rng: random.Random, sim) -> List[
     if rng.random() < chance:
         _kill(t, f"{effect} by {hazard}")
         return [f"{t.name} is {effect} by {hazard}."]
-    t.add_status("shaken")
+    add_status_variant(t, "shaken", rng)
     t.adjust_morale(-1)
     return [f"{t.name} narrowly avoids {hazard}."]
 
@@ -372,7 +404,7 @@ def event_weapon_malfunction(tributes: List[Tribute], rng: random.Random, sim) -
     if rng.random() < base:
         _kill(t, f"{w} malfunction")
         return [f"{t.name}'s {w} misfires catastrophically. {t.name} is eliminated."]
-    t.add_status("singed")
+    add_status_variant(t, "singed", rng)
     t.adjust_morale(-2)
     return [f"{t.name}'s {w} fizzles embarrassingly, leaving scorch marks."]
 
@@ -545,7 +577,7 @@ def global_weather_shift(all_tributes: List[Tribute], rng: random.Random, sim) -
     for t in all_tributes:
         if not t.alive: continue
         if weather in ["dense fog","glitter drizzle"] and rng.random() < 0.25:
-            t.add_status("disoriented")
+            add_status_variant(t, "disoriented", rng)
             lines.append(f"{t.name} becomes disoriented.")
         if weather == "frigid hail" and rng.random() < 0.15:
             t.add_status("wounded")
