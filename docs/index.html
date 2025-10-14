@@ -44,8 +44,10 @@
         <input type="number" id="strict" placeholder="(blank)" min="1" max="200"/>
       </div>
     </div>
-    <label for="roster">Custom Roster JSON (list or dict)</label>
-    <textarea id="roster" placeholder='[{"key":"x","name":"Alpha","age":20,"district":3}]'></textarea>
+  <label for="roster">Custom Roster JSON (list or dict)</label>
+  <textarea id="roster" placeholder='[{"key":"x","name":"Alpha","age":20,"district":3}]'></textarea>
+  <label for="content">Content JSON (extend weapons/items/hazards)</label>
+  <textarea id="content" placeholder='{"weapons":{"laser spoon":"vaporizes"},"items":["force field"],"hazards":{"gravity well":"spaghettified"}}'></textarea>
     <div class="row">
       <button id="runBtn">Run Simulation</button>
       <button id="clearBtn" type="button">Clear Log</button>
@@ -109,10 +111,11 @@ runBtn.addEventListener('click', async () => {
   const daysVal = parseInt(document.getElementById('days').value,10) || 30;
   const strictVal = document.getElementById('strict').value.trim();
   const rosterTxt = document.getElementById('roster').value.trim();
+  const contentTxt = document.getElementById('content').value.trim();
   const pySeedLiteral = seedVal !== '' && /^\d+$/.test(seedVal) ? seedVal : 'None';
   const pyStrictLiteral = strictVal !== '' && /^\d+$/.test(strictVal) ? strictVal : 'None';
 
-  const pyCode = `from hunger_main import run_simulation\nimport json\nlog_lines=[]\nseed=${pySeedLiteral}\nmax_days=${daysVal}\nstrict=${pyStrictLiteral}\nroster_json=${jsonEscape(rosterTxt)}\nroster=None\nif roster_json not in (None, '', 'None'):\n    try:\n        data=json.loads(roster_json)\n        if isinstance(data, list):\n            roster={f'user{idx+1}': val for idx,val in enumerate(data)}\n        elif isinstance(data, dict):\n            roster=data\n    except Exception as e:\n        log_lines.append(f'Roster parse error: {e}')\n\ndef capture(line):\n    log_lines.append(line)\n\nsim = run_simulation(seed=seed if seed is not None else None, max_days=max_days, verbose=True, roster=roster, strict_shutdown=strict if strict is not None else None, log_callback=capture)\ntry:\n    alliances = sim.alliances.to_dict() if hasattr(sim, 'alliances') else {}\n    tributes_out = []\n    if hasattr(sim, 'tributes'):\n        for t in sim.tributes:\n            td = getattr(sim, '_tribute_to_dict', lambda x: x.__dict__)(t)\n            tributes_out.append(td)\n    death_log = getattr(sim, 'death_log', [])\n    stats = getattr(sim, 'history_stats', {})\nexcept Exception as e:\n    alliances = {}\n    tributes_out = []\n    death_log = []\n    stats = {}\n    log_lines.append(f'Extraction error: {e}')\nresult = {"seed": seed, "max_days": max_days, "strict_shutdown": strict, "log": log_lines, "alliances": alliances, "tributes": tributes_out, "death_log": death_log, "stats": stats}\n`;
+  const pyCode = `from hunger_main import run_simulation, integrate_custom_content, load_custom_content\nimport json, os\nlog_lines=[]\nseed=${pySeedLiteral}\nmax_days=${daysVal}\nstrict=${pyStrictLiteral}\nroster_json=${jsonEscape(rosterTxt)}\ncontent_json=${jsonEscape(contentTxt)}\nroster=None\nif roster_json not in (None, '', 'None'):\n    try:\n        data=json.loads(roster_json)\n        if isinstance(data, list):\n            roster={f'user{idx+1}': val for idx,val in enumerate(data)}\n        elif isinstance(data, dict):\n            roster=data\n    except Exception as e:\n        log_lines.append(f'Roster parse error: {e}')\nif content_json not in (None,'','None'):\n    try:\n        cc = json.loads(content_json)\n        if isinstance(cc, dict):\n            integrate_custom_content(cc)\n            log_lines.append('Custom content integrated (web).')\n    except Exception as e:\n        log_lines.append(f'Content parse error: {e}')\n\ndef capture(line):\n    log_lines.append(line)\n\nsim = run_simulation(seed=seed if seed is not None else None, max_days=max_days, verbose=True, roster=roster, strict_shutdown=strict if strict is not None else None, log_callback=capture)\ntry:\n    alliances = sim.alliances.to_dict() if hasattr(sim, 'alliances') else {}\n    tributes_out = []\n    if hasattr(sim, 'tributes'):\n        for t in sim.tributes:\n            td = getattr(sim, '_tribute_to_dict', lambda x: x.__dict__)(t)\n            tributes_out.append(td)\n    death_log = getattr(sim, 'death_log', [])\n    stats = getattr(sim, 'history_stats', {})\nexcept Exception as e:\n    alliances = {}\n    tributes_out = []\n    death_log = []\n    stats = {}\n    log_lines.append(f'Extraction error: {e}')\nresult = {"seed": seed, "max_days": max_days, "strict_shutdown": strict, "log": log_lines, "alliances": alliances, "tributes": tributes_out, "death_log": death_log, "stats": stats}\n`;
   try {
     await pyodide.runPythonAsync(pyCode + "\nimport json\nresult_json = json.dumps(result)\n");
     const resultStr = pyodide.globals.get('result_json');

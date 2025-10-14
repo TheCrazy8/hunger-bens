@@ -3,6 +3,7 @@ import json
 import sys
 import argparse
 import os
+import importlib.util
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Callable, Optional, Set, Tuple, Any
 from datetime import datetime
@@ -1054,6 +1055,95 @@ def addnomen(dicty_ref: Dict[str, Dict[str, Any]]):
             break
 
 # -----------------------------
+# Custom Content Loader (Weapons / Hazards / Events)
+# -----------------------------
+# Supported JSON schema (any field optional):
+# {
+#   "weapons": {"laser spoon": "zaps"},             # weapon name -> verb
+#   "items": ["force field", "decoy duck"],         # extra supply items
+#   "hazards": {"gravity well": "crushed"},        # hazard -> effect keyword
+#   "events_module": "path/to/events_extra.py"      # Python file exporting callables matching signature
+# }
+# or separate flags per file.
+
+def load_custom_content(path: str):
+    """Load custom content definitions from JSON.
+    Returns dict with potential keys: weapons, items, hazards, events_module
+    """
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("Custom content JSON must be an object.")
+        return data
+    except Exception as e:
+        print(f"Failed to load custom content: {e}")
+        return {}
+
+def integrate_custom_content(content: Dict[str, Any]):
+    """Mutate global registries with user-provided extensions."""
+    # Weapons
+    new_weapons = content.get('weapons', {})
+    if isinstance(new_weapons, dict):
+        for w, verb in new_weapons.items():
+            if not isinstance(w, str) or not isinstance(verb, str):
+                continue
+            WEAPON_VERBS[w] = verb
+        # Update WEAPONS set (exclude base non-weapons)
+        global WEAPONS
+        WEAPONS = set(WEAPON_VERBS.keys()) - {"fists", "rock", "stick"}
+    # Items
+    extra_items = content.get('items', [])
+    if isinstance(extra_items, list):
+        for it in extra_items:
+            if isinstance(it, str) and it not in SUPPLY_ITEMS and it not in CORNUCOPIA_ITEMS:
+                SUPPLY_ITEMS.append(it)
+    # Hazards
+    new_hazards = content.get('hazards', {})
+    if isinstance(new_hazards, dict):
+        for hz, effect in new_hazards.items():
+            if not isinstance(hz, str) or not isinstance(effect, str):
+                continue
+            if hz not in HAZARDS:
+                HAZARDS.append(hz)
+            HAZARD_EFFECTS[hz] = effect
+    # Events module (dynamic import)
+    module_path = content.get('events_module')
+    if isinstance(module_path, str) and os.path.isfile(module_path):
+        try:
+            spec = importlib.util.spec_from_file_location("_user_events_mod", module_path)
+            mod = importlib.util.module_from_spec(spec)
+            assert spec.loader is not None
+            spec.loader.exec_module(mod)
+            # Expect attributes: DAY_EVENTS_EXTRA, NIGHT_EVENTS_EXTRA, GLOBAL_EVENTS_EXTRA (each iterable of callables)
+            day_extra = getattr(mod, 'DAY_EVENTS_EXTRA', [])
+            night_extra = getattr(mod, 'NIGHT_EVENTS_EXTRA', [])
+            global_extra = getattr(mod, 'GLOBAL_EVENTS_EXTRA', [])
+            # Basic validation of signature count of params (loose)
+            def _valid(fn):
+                if not callable(fn): return False
+                try:
+                    import inspect
+                    sig = inspect.signature(fn)
+                    return len(sig.parameters) >= 3
+                except Exception:
+                    return False
+            added_day = [fn for fn in day_extra if _valid(fn)]
+            added_night = [fn for fn in night_extra if _valid(fn)]
+            added_global = [fn for fn in global_extra if _valid(fn)]
+            DAY_EVENTS.extend(added_day)
+            NIGHT_EVENTS.extend(added_night)
+            GLOBAL_EVENTS.extend(added_global)
+            # Provide default weights for new events if absent
+            for fn in added_day + added_night:
+                if fn not in BASE_EVENT_WEIGHTS:
+                    BASE_EVENT_WEIGHTS[fn] = 0.7
+            print(f"Integrated custom events: day={len(added_day)}, night={len(added_night)}, global={len(added_global)}")
+        except Exception as e:
+            print(f"Failed to import custom events module: {e}")
+
+
+# -----------------------------
 # Convenience Runner
 # -----------------------------
 def run_simulation(
@@ -1124,9 +1214,14 @@ if os.name == 'nt':
             self.roster_entry.grid(row=3, column=1, columnspan=2, sticky='we')
             ttk.Button(frm, text="Load", command=self._load_roster).grid(row=3, column=3, sticky='w')
 
+            ttk.Label(frm, text="Content JSON:").grid(row=4, column=0, sticky='w')
+            self.content_entry = ttk.Entry(frm, width=25)
+            self.content_entry.grid(row=4, column=1, columnspan=2, sticky='we')
+            ttk.Button(frm, text="Load", command=self._load_content).grid(row=4, column=3, sticky='w')
+
             # Run controls
             btn_frame = ttk.Frame(frm)
-            btn_frame.grid(row=4, column=0, columnspan=4, pady=(8,4), sticky='we')
+            btn_frame.grid(row=5, column=0, columnspan=4, pady=(8,4), sticky='we')
             ttk.Button(btn_frame, text="Run Simulation", command=self._run).grid(row=0, column=0, padx=4)
             ttk.Button(btn_frame, text="Clear Output", command=self._clear_output).grid(row=0, column=1, padx=4)
             ttk.Button(btn_frame, text="Quit", command=self.root.quit).grid(row=0, column=2, padx=4)
@@ -1155,6 +1250,19 @@ if os.name == 'nt':
                 messagebox.showinfo("Roster Loaded", f"Loaded {len(data)} tributes")
             except Exception as e:
                 messagebox.showerror("Roster Error", f"Failed to load roster: {e}")
+
+        def _load_content(self):
+            path = filedialog.askopenfilename(filetypes=[('JSON','*.json')])
+            if not path:
+                return
+            try:
+                cc = load_custom_content(path)
+                integrate_custom_content(cc)
+                self.content_entry.delete(0,'end')
+                self.content_entry.insert(0, path)
+                messagebox.showinfo("Content Loaded", "Custom content integrated")
+            except Exception as e:
+                messagebox.showerror("Content Error", f"Failed to load content: {e}")
 
         def _append_log(self, line: str):
             self.output.insert('end', line + '\n')
@@ -1244,6 +1352,7 @@ def parse_args():
     parser.add_argument("--quiet", action="store_true", help="Suppress live output (still logs internally)")
     parser.add_argument("--export-log", type=str, help="Export full run JSON to file")
     parser.add_argument("--roster", type=str, help="Path to JSON roster file")
+    parser.add_argument("--content", type=str, help="Path to JSON custom content file (weapons/hazards/events)")
     parser.add_argument("--strict-shutdown", type=int, help="Force terminate after given day if multiple alive")
     parser.add_argument("--interactive", action="store_true", help="Use interactive loop instead of single run")
     parser.add_argument("--no-clear", action="store_true", help="Disable clearing the screen before interactive simulation output")
@@ -1264,6 +1373,13 @@ def cli_entry():
         except Exception as e:
             print(f"Failed to load roster: {e}")
             return
+    if args.content:
+        if not os.path.isfile(args.content):
+            print(f"Custom content file not found: {args.content}")
+        else:
+            cc = load_custom_content(args.content)
+            integrate_custom_content(cc)
+            print(f"Custom content integrated from {args.content}")
     # GUI mode
     if os.name == 'nt' and getattr(args, 'gui', False):
         import tkinter
