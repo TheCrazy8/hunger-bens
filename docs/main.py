@@ -9,6 +9,7 @@ if os.name == "nt":
     import tkinter
     import tkinter.ttk as ttk
     from tkinter import scrolledtext, messagebox, filedialog
+    import sv_ttk
 else:
     pass
 
@@ -1252,6 +1253,7 @@ def cli_entry():
         import tkinter
         root = tkinter.Tk()
         gui = HungerBensGUI(root)
+        sv_ttk.set_theme("dark")
         root.mainloop()
         return
     if args.interactive:
