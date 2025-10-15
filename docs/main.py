@@ -4,6 +4,10 @@ import sys
 import argparse
 import os
 import importlib.util
+import zipfile
+import hashlib
+import tempfile
+import shutil
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Callable, Optional, Set, Tuple, Any
 from datetime import datetime
@@ -750,6 +754,10 @@ BASE_EVENT_WEIGHTS = {
 #   3) %LOCALAPPDATA%\HungerBens\plugins
 #   4) %APPDATA%\HungerBens\plugins (Roaming)
 #   5) %PROGRAMDATA%\HungerBens\plugins (machine-wide)
+#
+# Files supported:
+#   - Single-file Python modules: *.py (legacy)
+#   - Zipped plugins: *.ben (zip archives; will be extracted to cache and loaded)
 
 _PLUGINS_LOADED = False
 
@@ -792,14 +800,21 @@ def _iter_plugin_paths() -> List[str]:
     return [p for p in ordered if os.path.isdir(p)]
 
 def scan_plugin_files() -> List[Tuple[str, str]]:
-    """Return list of (plugin_id, absolute_path) for available plugin .py files without importing.
+    """Return list of (plugin_id, absolute_path) for available plugin files without importing.
+    Supports:
+      - *.py single-file plugins
+      - *.ben (zip archives; treated as plugin bundles)
     Skips __init__.py.
     """
     results: List[Tuple[str, str]] = []
     for d in _iter_plugin_paths():
         try:
-            for fname in os.listdir(d):
-                if not fname.endswith('.py') or fname == '__init__.py':
+            # We prefer .ben over .py if both exist with same id in the same folder
+            files = sorted(os.listdir(d), key=lambda n: (0 if n.endswith('.ben') else 1, n.lower()))
+            for fname in files:
+                lower = fname.lower()
+                # Skip non-plugin files
+                if not (lower.endswith('.py') or lower.endswith('.ben')) or fname == '__init__.py':
                     continue
                 fpath = os.path.join(d, fname)
                 pid = os.path.splitext(fname)[0]
@@ -815,6 +830,89 @@ def scan_plugin_files() -> List[Tuple[str, str]]:
         seen.add(pid)
         unique.append((pid, path))
     return unique
+
+def _hash_file(path: str) -> str:
+    try:
+        h = hashlib.sha256()
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        # Fallback to mtime+size hash
+        try:
+            st = os.stat(path)
+            raw = f"{getattr(st, 'st_mtime', 0)}:{getattr(st, 'st_size', 0)}".encode()
+            return hashlib.sha256(raw).hexdigest()
+        except Exception:
+            return "unknown"
+
+def _get_cache_base_dir() -> str:
+    base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or tempfile.gettempdir()
+    p = os.path.join(base, 'HungerBens', 'plugins_cache')
+    try:
+        os.makedirs(p, exist_ok=True)
+    except Exception:
+        pass
+    return p
+
+def _prune_old_caches(cache_base: str, pid: str, keep_path: str):
+    try:
+        for name in os.listdir(cache_base):
+            if name.startswith(f"{pid}-"):
+                full = os.path.join(cache_base, name)
+                if os.path.abspath(full) != os.path.abspath(keep_path):
+                    shutil.rmtree(full, ignore_errors=True)
+    except Exception:
+        pass
+
+def _extract_zip_plugin(pid: str, archive_path: str, log_fn: Optional[Callable[[str], None]]) -> Optional[str]:
+    """Extract .ben (zip) plugin into a versioned cache folder and return the extraction dir."""
+    try:
+        sig = _hash_file(archive_path)[:12]
+        cache_base = _get_cache_base_dir()
+        dest_dir = os.path.join(cache_base, f"{pid}-{sig}")
+        if not os.path.isdir(dest_dir):
+            # Fresh extract
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+            except Exception:
+                pass
+            with zipfile.ZipFile(archive_path, 'r') as zf:
+                zf.extractall(dest_dir)
+        # Prune other versions of same pid
+        _prune_old_caches(cache_base, pid, dest_dir)
+        return dest_dir
+    except Exception as e:
+        _log_plugin(f"[Plugins] Failed to extract {os.path.basename(archive_path)}: {e}", log_fn)
+        return None
+
+def _find_zip_entry_file(extracted_dir: str) -> Optional[str]:
+    """Heuristics to locate the plugin's entry .py within an extracted plugin folder."""
+    try:
+        # 1) Prefer ./plugin.py
+        candidate = os.path.join(extracted_dir, 'plugin.py')
+        if os.path.isfile(candidate):
+            return candidate
+        # 2) Prefer package ./plugin/__init__.py
+        pkg_init = os.path.join(extracted_dir, 'plugin', '__init__.py')
+        if os.path.isfile(pkg_init):
+            return pkg_init
+        # 3) If exactly one top-level .py exists, use it
+        tops = [f for f in os.listdir(extracted_dir) if f.endswith('.py')]
+        if len(tops) == 1:
+            return os.path.join(extracted_dir, tops[0])
+        # 4) If there's a package folder with __init__, and it's the only package, use it
+        pkgs = []
+        for entry in os.listdir(extracted_dir):
+            p = os.path.join(extracted_dir, entry)
+            if os.path.isdir(p) and os.path.isfile(os.path.join(p, '__init__.py')):
+                pkgs.append(os.path.join(p, '__init__.py'))
+        if len(pkgs) == 1:
+            return pkgs[0]
+    except Exception:
+        pass
+    return None
 
 def load_windows_plugins(log_fn: Optional[Callable[[str], None]] = None):
     global _PLUGINS_LOADED
@@ -842,6 +940,7 @@ def load_windows_plugins(log_fn: Optional[Callable[[str], None]] = None):
         _PLUGINS_LOADED = True
         return
     loaded_any = False
+    loaded_ids: Set[str] = set()
     # Integrate config for per-plugin enable/disable; discover new plugins
     cfg_plugins: Dict[str, Any] = _CONFIG.get('plugins', {}) if isinstance(_CONFIG.get('plugins'), dict) else {}
     discovered = scan_plugin_files()
@@ -859,83 +958,127 @@ def load_windows_plugins(log_fn: Optional[Callable[[str], None]] = None):
         save_config(_CONFIG)
     except Exception:
         pass
+
+    # Helper to integrate a loaded module
+    def _integrate_plugin_module(mod, fname: str):
+        nonlocal loaded_any
+        plugin_events: Dict[str, List[Callable]] = {}
+        # Content
+        if hasattr(mod, 'get_custom_content'):
+            try:
+                cc = mod.get_custom_content()  # type: ignore[attr-defined]
+                if isinstance(cc, dict) and cc:
+                    integrate_custom_content(cc)
+                    _log_plugin(f"[Plugins] Integrated custom content from {fname}", log_fn)
+            except Exception as e:
+                _log_plugin(f"[Plugins] get_custom_content error in {fname}: {e}", log_fn)
+        # Events
+        if hasattr(mod, 'get_events'):
+            try:
+                ev = mod.get_events()  # type: ignore[attr-defined]
+                if isinstance(ev, dict):
+                    for k in ('day','night','global'):
+                        arr = ev.get(k, [])
+                        if isinstance(arr, list):
+                            plugin_events[k] = [f for f in arr if callable(f)]
+                        else:
+                            plugin_events[k] = []
+                    if plugin_events.get('day'):
+                        DAY_EVENTS.extend(plugin_events['day'])
+                    if plugin_events.get('night'):
+                        NIGHT_EVENTS.extend(plugin_events['night'])
+                    if plugin_events.get('global'):
+                        GLOBAL_EVENTS.extend(plugin_events['global'])
+                    _log_plugin(f"[Plugins] Registered events from {fname}", log_fn)
+            except Exception as e:
+                _log_plugin(f"[Plugins] get_events error in {fname}: {e}", log_fn)
+        # Event weights
+        if hasattr(mod, 'get_event_weights'):
+            try:
+                w = mod.get_event_weights()  # type: ignore[attr-defined]
+                if isinstance(w, dict):
+                    for key, weight in w.items():
+                        if not isinstance(weight, (int, float)):
+                            continue
+                        func = None
+                        if callable(key):
+                            func = key
+                        elif isinstance(key, str):
+                            # Try to resolve by name among plugin events
+                            for arr in (plugin_events.get('day', []), plugin_events.get('night', []), plugin_events.get('global', [])):
+                                for f in arr:
+                                    if getattr(f, '__name__', '') == key:
+                                        func = f
+                                        break
+                                if func:
+                                    break
+                        if func:
+                            BASE_EVENT_WEIGHTS[func] = float(weight)
+                    _log_plugin(f"[Plugins] Applied event weights from {fname}", log_fn)
+            except Exception as e:
+                _log_plugin(f"[Plugins] get_event_weights error in {fname}: {e}", log_fn)
+        loaded_any = True
+
+    # Load plugins
     for d in plugin_dirs:
         try:
-            for fname in os.listdir(d):
-                if not fname.endswith('.py') or fname == '__init__.py':
+            files = sorted(os.listdir(d), key=lambda n: (0 if n.lower().endswith('.ben') else 1, n.lower()))
+            for fname in files:
+                lower = fname.lower()
+                if not (lower.endswith('.py') or lower.endswith('.ben')) or fname == '__init__.py':
                     continue
                 fpath = os.path.join(d, fname)
                 pid = os.path.splitext(fname)[0]
+                # De-duplicate by pid across directories and file types
+                if pid in loaded_ids:
+                    continue
                 # Respect per-plugin enable flag
                 pen = cfg_plugins.get(pid, {}).get('enabled', True)
                 if not pen:
                     _log_plugin(f"[Plugins] Skipped disabled plugin {fname}", log_fn)
                     continue
-                mod_name = f"hb_plugin_{pid}"
                 try:
-                    spec = importlib.util.spec_from_file_location(mod_name, fpath)
-                    if not spec or not spec.loader:
-                        continue
-                    mod = importlib.util.module_from_spec(spec)
-                    sys.modules[mod_name] = mod
-                    spec.loader.exec_module(mod)  # type: ignore[attr-defined]
-                    loaded_any = True
-                    _log_plugin(f"[Plugins] Loaded {fname}", log_fn)
-                    # Content
-                    if hasattr(mod, 'get_custom_content'):
-                        try:
-                            cc = mod.get_custom_content()  # type: ignore[attr-defined]
-                            if isinstance(cc, dict) and cc:
-                                integrate_custom_content(cc)
-                                _log_plugin(f"[Plugins] Integrated custom content from {fname}", log_fn)
-                        except Exception as e:
-                            _log_plugin(f"[Plugins] get_custom_content error in {fname}: {e}", log_fn)
-                    # Events
-                    plugin_events: Dict[str, List[Callable]] = {}
-                    if hasattr(mod, 'get_events'):
-                        try:
-                            ev = mod.get_events()  # type: ignore[attr-defined]
-                            if isinstance(ev, dict):
-                                for k in ('day','night','global'):
-                                    arr = ev.get(k, [])
-                                    if isinstance(arr, list):
-                                        plugin_events[k] = [f for f in arr if callable(f)]
-                                    else:
-                                        plugin_events[k] = []
-                                if plugin_events.get('day'):
-                                    DAY_EVENTS.extend(plugin_events['day'])
-                                if plugin_events.get('night'):
-                                    NIGHT_EVENTS.extend(plugin_events['night'])
-                                if plugin_events.get('global'):
-                                    GLOBAL_EVENTS.extend(plugin_events['global'])
-                                _log_plugin(f"[Plugins] Registered events from {fname}", log_fn)
-                        except Exception as e:
-                            _log_plugin(f"[Plugins] get_events error in {fname}: {e}", log_fn)
-                    # Event weights
-                    if hasattr(mod, 'get_event_weights'):
-                        try:
-                            w = mod.get_event_weights()  # type: ignore[attr-defined]
-                            if isinstance(w, dict):
-                                for key, weight in w.items():
-                                    if not isinstance(weight, (int, float)):
-                                        continue
-                                    func = None
-                                    if callable(key):
-                                        func = key
-                                    elif isinstance(key, str):
-                                        # Try to resolve by name among plugin events
-                                        for arr in (plugin_events.get('day', []), plugin_events.get('night', []), plugin_events.get('global', [])):
-                                            for f in arr:
-                                                if getattr(f, '__name__', '') == key:
-                                                    func = f
-                                                    break
-                                            if func:
-                                                break
-                                    if func:
-                                        BASE_EVENT_WEIGHTS[func] = float(weight)
-                                _log_plugin(f"[Plugins] Applied event weights from {fname}", log_fn)
-                        except Exception as e:
-                            _log_plugin(f"[Plugins] get_event_weights error in {fname}: {e}", log_fn)
+                    if lower.endswith('.py'):
+                        mod_name = f"hb_plugin_{pid}"
+                        spec = importlib.util.spec_from_file_location(mod_name, fpath)
+                        if not spec or not spec.loader:
+                            continue
+                        mod = importlib.util.module_from_spec(spec)
+                        sys.modules[mod_name] = mod
+                        spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+                        _log_plugin(f"[Plugins] Loaded {fname}", log_fn)
+                        _integrate_plugin_module(mod, fname)
+                        loaded_ids.add(pid)
+                    elif lower.endswith('.ben'):
+                        extracted = _extract_zip_plugin(pid, fpath, log_fn)
+                        if not extracted:
+                            continue
+                        # Add extracted root to sys.path for any internal imports
+                        if extracted not in sys.path:
+                            sys.path.insert(0, extracted)
+                        entry = _find_zip_entry_file(extracted)
+                        if not entry:
+                            _log_plugin(f"[Plugins] No suitable entry .py found in {fname}", log_fn)
+                            continue
+                        mod_name = f"hb_plugin_{pid}"
+                        spec = importlib.util.spec_from_file_location(mod_name, entry)
+                        if not spec or not spec.loader:
+                            _log_plugin(f"[Plugins] Could not build loader for {fname}", log_fn)
+                            continue
+                        mod = importlib.util.module_from_spec(spec)
+                        sys.modules[mod_name] = mod
+                        # If package, inform importlib about package layout
+                        if os.path.basename(entry) == '__init__.py':
+                            try:
+                                mod.__package__ = mod_name
+                                if hasattr(spec, 'submodule_search_locations') and spec.submodule_search_locations is None:  # type: ignore[attr-defined]
+                                    spec.submodule_search_locations = [os.path.dirname(entry)]  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
+                        spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+                        _log_plugin(f"[Plugins] Loaded {fname} (archive)", log_fn)
+                        _integrate_plugin_module(mod, fname)
+                        loaded_ids.add(pid)
                 except Exception as e:
                     _log_plugin(f"[Plugins] Failed to load {fname}: {e}", log_fn)
         except Exception as e:
