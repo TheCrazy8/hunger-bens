@@ -16,6 +16,8 @@ jobs:
   build-windows-exe:
     runs-on: windows-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,10 +43,24 @@ jobs:
         run: |
           python .\makeexe.py
 
+      - name: Cache Inno Setup
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\Program Files (x86)\Inno Setup 6
+            C:\ProgramData\chocolatey\lib\innosetup
+            C:\ProgramData\chocolatey\bin
+          key: innosetup-6-${{ runner.os }}-v1
+
       - name: Install Inno Setup
         shell: powershell
         run: |
-          choco install innosetup -y
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\iscc.exe"
+          if (Test-Path $iscc) {
+            Write-Host "Inno Setup already present (from cache)."
+          } else {
+            choco install innosetup -y --no-progress
+          }
 
       - name: Compile installer (Inno Setup)
         shell: powershell
@@ -54,6 +70,29 @@ jobs:
           $iscc = "C:\\Program Files (x86)\\Inno Setup 6\\iscc.exe"
           if (-Not (Test-Path $iscc)) { throw "Inno Setup iscc.exe not found at $iscc" }
           & "$iscc" ".\installer\hungerbens.iss" | Out-Host
+
+      - name: Generate release tag and name
+        id: relmeta
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: powershell
+        run: |
+          $chars = '0123456789ABCDEF'
+          $hex = -join (1..6 | ForEach-Object { $chars[(Get-Random -Minimum 0 -Maximum $chars.Length)] })
+          "hex=$hex"            >> $env:GITHUB_OUTPUT
+          "tag=build-$hex"      >> $env:GITHUB_OUTPUT
+          "name=Hunger Bens Build #$hex" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release and upload installer
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.relmeta.outputs.tag }}
+          name: ${{ steps.relmeta.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            installer/out/HungerBensInstaller.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
