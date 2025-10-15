@@ -82,6 +82,22 @@ jobs:
           "tag=build-$hex"      >> $env:GITHUB_OUTPUT
           "name=Hunger Bens Build #$hex" >> $env:GITHUB_OUTPUT
 
+      - name: Generate color swatch image
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: powershell
+        run: |
+          $hex = "${{ steps.relmeta.outputs.hex }}"
+          if (-not $hex) { throw "Hex value is empty" }
+          Add-Type -AssemblyName System.Drawing
+          $bmp = New-Object System.Drawing.Bitmap 256,256
+          $r = [Convert]::ToInt32($hex.Substring(0,2),16)
+          $g = [Convert]::ToInt32($hex.Substring(2,2),16)
+          $b = [Convert]::ToInt32($hex.Substring(4,2),16)
+          $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+          $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb($r,$g,$b))
+          $gfx.FillRectangle($brush,0,0,256,256)
+          $bmp.Save("color-$hex.png", [System.Drawing.Imaging.ImageFormat]::Png)
+
       - name: Create GitHub Release and upload installer
         if: ${{ github.event_name != 'pull_request' }}
         uses: softprops/action-gh-release@v2
@@ -89,8 +105,11 @@ jobs:
           tag_name: ${{ steps.relmeta.outputs.tag }}
           name: ${{ steps.relmeta.outputs.name }}
           target_commitish: ${{ github.sha }}
+          body: |
+            ![#${{ steps.relmeta.outputs.hex }}](https://github.com/${{ github.repository }}/releases/download/${{ steps.relmeta.outputs.tag }}/color-${{ steps.relmeta.outputs.hex }}.png)
           files: |
             installer/out/HungerBensInstaller.exe
+            color-${{ steps.relmeta.outputs.hex }}.png
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
