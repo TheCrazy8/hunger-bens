@@ -1079,6 +1079,19 @@ def load_custom_content(path: str):
         print(f"Failed to load custom content: {e}")
         return {}
 
+def load_custom_content_from_string(s: str) -> Dict[str, Any]:
+    """Parse custom content JSON from a raw string without using files.
+    Returns an empty dict on failure.
+    """
+    try:
+        data = json.loads(s)
+        if not isinstance(data, dict):
+            raise ValueError("Custom content JSON must be an object.")
+        return data
+    except Exception as e:
+        print(f"Failed to parse custom content JSON: {e}")
+        return {}
+
 def integrate_custom_content(content: Dict[str, Any]):
     """Mutate global registries with user-provided extensions."""
     # Weapons
@@ -1183,9 +1196,15 @@ if os.name == 'nt':
             self.content_entry.grid(row=4, column=1, columnspan=2, sticky='we')
             ttk.Button(frm, text="Load", command=self._load_content).grid(row=4, column=3, sticky='w')
 
+            # Inline JSON for content (no external files)
+            ttk.Label(frm, text="Inline Content JSON:").grid(row=5, column=0, sticky='w')
+            self.inline_content_entry = ttk.Entry(frm, width=25)
+            self.inline_content_entry.grid(row=5, column=1, columnspan=2, sticky='we')
+            ttk.Button(frm, text="Apply", command=self._apply_inline_content).grid(row=5, column=3, sticky='w')
+
             # Run controls
             btn_frame = ttk.Frame(frm)
-            btn_frame.grid(row=5, column=0, columnspan=4, pady=(8,4), sticky='we')
+            btn_frame.grid(row=6, column=0, columnspan=4, pady=(8,4), sticky='we')
             ttk.Button(btn_frame, text="Run Simulation", command=self._run).grid(row=0, column=0, padx=4)
             ttk.Button(btn_frame, text="Clear Output", command=self._clear_output).grid(row=0, column=1, padx=4)
             ttk.Button(btn_frame, text="Quit", command=self.root.quit).grid(row=0, column=2, padx=4)
@@ -1227,6 +1246,21 @@ if os.name == 'nt':
                 messagebox.showinfo("Content Loaded", "Custom content integrated")
             except Exception as e:
                 messagebox.showerror("Content Error", f"Failed to load content: {e}")
+
+        def _apply_inline_content(self):
+            raw = self.inline_content_entry.get().strip()
+            if not raw:
+                messagebox.showwarning("No JSON", "Please paste JSON into the Inline Content JSON field.")
+                return
+            data = load_custom_content_from_string(raw)
+            if not data:
+                messagebox.showerror("Invalid JSON", "Failed to parse custom content JSON. Check format.")
+                return
+            try:
+                integrate_custom_content(data)
+                messagebox.showinfo("Content Applied", "Inline custom content integrated")
+            except Exception as e:
+                messagebox.showerror("Content Error", f"Failed to integrate content: {e}")
 
         def _append_log(self, line: str):
             self.output.insert('end', line + '\n')
@@ -1289,6 +1323,17 @@ def mainloop(roster_override=None, clear_screen: bool = True):
     working_dicty = dict(dicty) if roster_override is None else dict(roster_override)
     if input("Add custom tributes? (y/n): ").lower() == 'y':
         addnomen(working_dicty)
+    # Inline custom content JSON (no file required)
+    if input("Add custom content via JSON? (y/n): ").lower() == 'y':
+        print("Paste a JSON object with optional keys: 'weapons', 'items', 'hazards'. One line recommended.")
+        raw = input("Content JSON (blank to skip): ").strip()
+        if raw:
+            cc = load_custom_content_from_string(raw)
+            if cc:
+                integrate_custom_content(cc)
+                print("Custom content integrated.")
+            else:
+                print("Invalid JSON; skipping custom content.")
     export_q = input("Export run to JSON? (filename or blank): ").strip()
     export_file = export_q if export_q else None
     if clear_screen:
@@ -1317,6 +1362,7 @@ def parse_args():
     parser.add_argument("--export-log", type=str, help="Export full run JSON to file")
     parser.add_argument("--roster", type=str, help="Path to JSON roster file")
     parser.add_argument("--content", type=str, help="Path to JSON custom content file (weapons/hazards/events)")
+    parser.add_argument("--content-json", type=str, help="Inline JSON string for custom content (no file)")
     parser.add_argument("--strict-shutdown", type=int, help="Force terminate after given day if multiple alive")
     parser.add_argument("--interactive", action="store_true", help="Use interactive loop instead of single run")
     parser.add_argument("--no-clear", action="store_true", help="Disable clearing the screen before interactive simulation output")
@@ -1344,6 +1390,13 @@ def cli_entry():
             cc = load_custom_content(args.content)
             integrate_custom_content(cc)
             print(f"Custom content integrated from {args.content}")
+    if getattr(args, 'content_json', None):
+        cc2 = load_custom_content_from_string(args.content_json)
+        if cc2:
+            integrate_custom_content(cc2)
+            print("Inline custom content integrated from --content-json")
+        else:
+            print("Failed to parse --content-json; ignoring.")
     # GUI mode
     if os.name == 'nt' and getattr(args, 'gui', False):
         import tkinter
