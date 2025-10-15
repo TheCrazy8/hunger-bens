@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hunger Bens .ben Plugin Builder</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>🍔 Hunger Bens .ben Plugin Builder</h1>
+    <p>Create plugin archives (.ben files) for the Hunger Bens Simulator</p>
+  </header>
+
+  <main>
+    <div class="info-box">
+      <h2>📖 What is a .ben plugin?</h2>
+      <p>A <strong>.ben</strong> file is a ZIP archive containing Python code that extends the Hunger Bens Simulator. The simulator expects one of these entry structures:</p>
+      <ul>
+        <li><code>plugin.py</code> at the root level</li>
+        <li><code>plugin/__init__.py</code> as a package</li>
+        <li>Exactly one <code>.py</code> file at the root (fallback)</li>
+      </ul>
+      <p>Optional API functions in your entry module:</p>
+      <ul>
+        <li><code>get_custom_content()</code> → dict with weapons, items, hazards</li>
+        <li><code>get_events()</code> → dict with day/night/global event callables</li>
+        <li><code>get_event_weights()</code> → dict mapping events to weights</li>
+      </ul>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-button active" data-tab="quick">Quick Builder</button>
+      <button class="tab-button" data-tab="advanced">Advanced Builder</button>
+    </div>
+
+    <!-- Quick Builder Tab -->
+    <div id="quick-tab" class="tab-content active">
+      <fieldset>
+        <legend>Plugin Metadata</legend>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="plugin-id">Plugin ID *</label>
+            <input type="text" id="plugin-id" placeholder="e.g., my_custom_plugin" required>
+            <small>Used for filename and internal identification</small>
+          </div>
+          <div class="form-group">
+            <label for="plugin-author">Author</label>
+            <input type="text" id="plugin-author" placeholder="Your Name">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="plugin-description">Description</label>
+          <textarea id="plugin-description" rows="2" placeholder="Brief description of what your plugin does"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="plugin-license">License (optional)</label>
+          <input type="text" id="plugin-license" placeholder="e.g., MIT, Apache-2.0">
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Plugin Structure</legend>
+        <div class="form-group">
+          <label>Entry Type</label>
+          <div class="radio-group">
+            <label>
+              <input type="radio" name="entry-type" value="single" checked>
+              Single file (<code>plugin.py</code>)
+            </label>
+            <label>
+              <input type="radio" name="entry-type" value="package">
+              Package (<code>plugin/__init__.py</code>)
+            </label>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Custom Content (Optional)</legend>
+        <p class="hint">Paste valid JSON for weapons, items, and/or hazards. Leave empty to skip.</p>
+        
+        <div class="form-group">
+          <label for="custom-weapons">Weapons JSON</label>
+          <textarea id="custom-weapons" rows="4" placeholder='{"laser spoon": "vaporizes", "sonic fork": "resonates"}'></textarea>
+          <small>Format: {"weapon_name": "verb"}</small>
+        </div>
+
+        <div class="form-group">
+          <label for="custom-items">Items JSON</label>
+          <textarea id="custom-items" rows="4" placeholder='["force field", "decoy duck"]'></textarea>
+          <small>Format: ["item1", "item2"]</small>
+        </div>
+
+        <div class="form-group">
+          <label for="custom-hazards">Hazards JSON</label>
+          <textarea id="custom-hazards" rows="4" placeholder='{"gravity well": "spaghettified", "nano swarm": "dismantled"}'></textarea>
+          <small>Format: {"hazard_name": "death_effect"}</small>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Sample Event (Optional)</legend>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="include-sample-event">
+            Include sample event scaffold
+          </label>
+          <small>Adds an example event function with get_events() and get_event_weights() wiring</small>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Additional Files</legend>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="include-readme" checked>
+            Include README.txt
+          </label>
+        </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="include-license-file">
+            Include LICENSE.txt (uses license field above)
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="actions">
+        <button id="build-quick" class="btn-primary">🔨 Build .ben File</button>
+        <button id="preview-quick" class="btn-secondary">👁 Preview Generated Code</button>
+      </div>
+    </div>
+
+    <!-- Advanced Builder Tab -->
+    <div id="advanced-tab" class="tab-content">
+      <fieldset>
+        <legend>File Tree</legend>
+        <p class="hint">Build your plugin structure manually. Add files, create folders, or upload existing files.</p>
+        
+        <div class="toolbar">
+          <button id="add-file" class="btn-secondary">➕ Add File</button>
+          <button id="add-folder" class="btn-secondary">📁 Add Folder</button>
+          <button id="upload-files" class="btn-secondary">📤 Upload Files</button>
+          <input type="file" id="file-upload-input" multiple style="display: none;">
+        </div>
+
+        <div id="file-tree" class="file-tree">
+          <!-- File tree will be rendered here -->
+        </div>
+      </fieldset>
+
+      <fieldset id="file-editor-section" style="display: none;">
+        <legend>Edit: <span id="current-file-name"></span></legend>
+        <textarea id="file-editor" rows="20"></textarea>
+        <div class="actions">
+          <button id="save-file" class="btn-primary">💾 Save</button>
+          <button id="cancel-edit" class="btn-secondary">Cancel</button>
+        </div>
+      </fieldset>
+
+      <div class="actions">
+        <button id="build-advanced" class="btn-primary">🔨 Build .ben File</button>
+        <input type="text" id="advanced-plugin-id" placeholder="Plugin ID (filename)" style="width: 250px; margin-left: 10px;">
+      </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div id="preview-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Code Preview</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <pre id="preview-code"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error/Success Messages -->
+    <div id="message-area"></div>
+  </main>
+
+  <footer>
+    <p>
+      <a href="https://github.com/TheCrazy8/hunger-bens" target="_blank">Hunger Bens Simulator</a> | 
+      <a href="README.md" target="_blank">Usage Guide</a>
+    </p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
