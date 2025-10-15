@@ -58,13 +58,13 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: installer-${{ github.run_number }}
+          name: HungerBensInstaller-${{ github.run_number }}
           path: installer/out/HungerBensInstaller.exe
           if-no-files-found: warn
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ github.run_number }}
-          path: dist/**
+          name: dist-HungerBens-${{ github.run_number }}
+          path: dist/HungerBens/**
           if-no-files-found: ignore

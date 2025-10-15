@@ -4,7 +4,7 @@
 #define MyAppName "Hunger Bens"
 #define MyAppPublisher "Your Company or Name"
 #define MyAppURL "https://github.com/TheCrazy8/hunger-bens"
-#define MyAppExeName "WD_Toolkit.exe" ; Change if your built exe has a different name
+#define MyAppExeName "HungerBens.exe" ; Built by PyInstaller --name=HungerBens
 #define MyAppVersion GetEnv('APP_VERSION')
 #ifndef MyAppVersion
   #define MyAppVersion "1.0.0"
@@ -43,10 +43,12 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 [Dirs]
 ; Create a shared data folder for assets writable by all users
 Name: "{commonappdata}\HungerBens"; Flags: uninsalwaysuninstall
+; Ensure plugins folder exists for machine-wide plugins
+Name: "{commonappdata}\HungerBens\plugins"; Flags: uninsalwaysuninstall
 
 [Files]
 ; Install the application binaries built by PyInstaller (adjust Source if folder name differs)
-Source: "dist\WD_Toolkit\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\HungerBens\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Optionally include default assets/configs into ProgramData (shared)
 ; Source: "assets\*"; DestDir: "{commonappdata}\HungerBens"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist

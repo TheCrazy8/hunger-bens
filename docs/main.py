@@ -684,11 +684,18 @@ BASE_EVENT_WEIGHTS = {
 # -----------------------------
 # Windows-only Plugin System
 # -----------------------------
-# Plugin API (optional functions in each plugin module under the plugins/ folder next to this file):
+# Plugin API (optional functions in each plugin module):
 #   - get_custom_content() -> dict with keys like {"weapons": {...}, "items": [...], "hazards": {...}}
 #   - get_events() -> {"day": [callables], "night": [callables], "global": [callables]}
 #   - get_event_weights() -> {callable or callable.__name__: float}
 # Any provided content/events will be merged into the simulator's registries.
+#
+# Search order (Windows):
+#   1) HUNGER_BENS_PLUGIN_DIRS (os.pathsep-separated list)
+#   2) Repo-relative: <repo>/docs/plugins
+#   3) %LOCALAPPDATA%\HungerBens\plugins
+#   4) %APPDATA%\HungerBens\plugins (Roaming)
+#   5) %PROGRAMDATA%\HungerBens\plugins (machine-wide)
 
 _PLUGINS_LOADED = False
 
@@ -703,10 +710,32 @@ def _log_plugin(line: str, log_fn: Optional[Callable[[str], None]] = None):
 
 def _iter_plugin_paths() -> List[str]:
     here = os.path.dirname(os.path.abspath(__file__))
-    default_dir = os.path.join(here, 'plugins')
-    env_dirs = os.environ.get('HUNGER_BENS_PLUGIN_DIRS', '')
-    paths = [p for p in env_dirs.split(os.pathsep) if p] or [default_dir]
-    return [p for p in paths if os.path.isdir(p)]
+    repo_plugins = os.path.join(here, 'plugins')
+    env_dirs_raw = os.environ.get('HUNGER_BENS_PLUGIN_DIRS', '')
+    env_dirs = [p for p in env_dirs_raw.split(os.pathsep) if p]
+    candidates: List[str] = []
+    if env_dirs:
+        candidates.extend(env_dirs)
+    # Default search locations
+    candidates.append(repo_plugins)
+    if os.name == 'nt':
+        lap = os.environ.get('LOCALAPPDATA')
+        rap = os.environ.get('APPDATA')  # Roaming
+        prog = os.environ.get('PROGRAMDATA')
+        if lap:
+            candidates.append(os.path.join(lap, 'HungerBens', 'plugins'))
+        if rap:
+            candidates.append(os.path.join(rap, 'HungerBens', 'plugins'))
+        if prog:
+            candidates.append(os.path.join(prog, 'HungerBens', 'plugins'))
+    # Deduplicate while preserving order
+    seen = set()
+    ordered = []
+    for p in candidates:
+        if p and p not in seen:
+            seen.add(p)
+            ordered.append(p)
+    return [p for p in ordered if os.path.isdir(p)]
 
 def load_windows_plugins(log_fn: Optional[Callable[[str], None]] = None):
     global _PLUGINS_LOADED
@@ -714,6 +743,21 @@ def load_windows_plugins(log_fn: Optional[Callable[[str], None]] = None):
         return
     if os.name != 'nt':
         return
+    # Proactively ensure common plugin directories exist (per-user and machine-wide)
+    try:
+        lap = os.environ.get('LOCALAPPDATA')
+        rap = os.environ.get('APPDATA')
+        prog = os.environ.get('PROGRAMDATA')
+        for base in (lap, rap, prog):
+            if not base:
+                continue
+            pdir = os.path.join(base, 'HungerBens', 'plugins')
+            try:
+                os.makedirs(pdir, exist_ok=True)
+            except Exception as e:
+                _log_plugin(f"[Plugins] Could not create {pdir}: {e}", log_fn)
+    except Exception:
+        pass
     plugin_dirs = _iter_plugin_paths()
     if not plugin_dirs:
         _PLUGINS_LOADED = True
@@ -1340,7 +1384,8 @@ if os.name == 'nt':
             btn_frame.grid(row=7, column=0, columnspan=4, pady=(8,4), sticky='we')
             ttk.Button(btn_frame, text="Run Simulation", command=self._run).grid(row=0, column=0, padx=4)
             ttk.Button(btn_frame, text="Clear Output", command=self._clear_output).grid(row=0, column=1, padx=4)
-            ttk.Button(btn_frame, text="Quit", command=self.root.quit).grid(row=0, column=2, padx=4)
+            ttk.Button(btn_frame, text="Settings", command=self._open_settings).grid(row=0, column=2, padx=4)
+            ttk.Button(btn_frame, text="Quit", command=self.root.quit).grid(row=0, column=3, padx=4)
 
             # Output area
             self.output = scrolledtext.ScrolledText(self.root, wrap='word', height=30)
@@ -1433,6 +1478,70 @@ if os.name == 'nt':
                 self._append_log("Simulation complete.")
             except Exception as e:
                 messagebox.showerror("Run Error", f"Simulation failed: {e}")
+
+        def _compute_plugin_paths(self):
+            here = os.path.dirname(os.path.abspath(__file__))
+            repo_plugins = os.path.join(here, 'plugins')
+            lap = os.environ.get('LOCALAPPDATA')
+            rap = os.environ.get('APPDATA')
+            prog = os.environ.get('PROGRAMDATA')
+            paths = []
+            if lap:
+                paths.append(("LocalAppData", os.path.join(lap, 'HungerBens', 'plugins')))
+            if rap:
+                paths.append(("AppData (Roaming)", os.path.join(rap, 'HungerBens', 'plugins')))
+            if prog:
+                paths.append(("ProgramData (All Users)", os.path.join(prog, 'HungerBens', 'plugins')))
+            paths.append(("Repo (docs/plugins)", repo_plugins))
+            return paths
+
+        def _open_folder(self, path: str):
+            try:
+                os.makedirs(path, exist_ok=True)
+                os.startfile(path)  # type: ignore[attr-defined]
+            except Exception as e:
+                messagebox.showerror("Open Folder", f"Failed to open/create folder:\n{path}\n\n{e}")
+
+        def _open_settings(self):
+            win = tkinter.Toplevel(self.root)
+            win.title("Settings")
+            win.geometry("560x360")
+            c = ttk.Frame(win, padding=10)
+            c.pack(fill='both', expand=True)
+
+            # Section: Plugins
+            ttk.Label(c, text="Plugins", font=(None, 12, 'bold')).pack(anchor='w')
+            ttk.Label(c, text="Manage plugin folders. These are scanned on Windows when plugins are enabled.").pack(anchor='w', pady=(0,8))
+
+            paths = self._compute_plugin_paths()
+            # Scrollable area if many rows
+            canvas = tkinter.Canvas(c, highlightthickness=0)
+            scroll_y = ttk.Scrollbar(c, orient='vertical', command=canvas.yview)
+            row_frame = ttk.Frame(canvas)
+            row_frame.bind(
+                "<Configure>",
+                lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            )
+            canvas.create_window((0,0), window=row_frame, anchor='nw')
+            canvas.configure(yscrollcommand=scroll_y.set, height=180)
+            canvas.pack(side='left', fill='both', expand=True)
+            scroll_y.pack(side='right', fill='y')
+
+            for i, (label, p) in enumerate(paths):
+                row = ttk.Frame(row_frame)
+                row.grid(row=i, column=0, sticky='we', pady=3)
+                row.columnconfigure(1, weight=1)
+                exists = os.path.isdir(p)
+                text = f"{label}: {p}"
+                ttk.Label(row, text=text, wraplength=420, justify='left').grid(row=0, column=0, sticky='w')
+                state = "Exists" if exists else "(will be created)"
+                ttk.Label(row, text=state, foreground=("#8f8" if exists else "#ff8")).grid(row=0, column=1, padx=8, sticky='e')
+                ttk.Button(row, text="Open", command=lambda path=p: self._open_folder(path)).grid(row=0, column=2, padx=6)
+
+            # Other settings placeholders (future)
+            ttk.Separator(c).pack(fill='x', pady=10)
+            ttk.Label(c, text="Preferences", font=(None, 12, 'bold')).pack(anchor='w')
+            ttk.Label(c, text="More settings can be added here in the future.").pack(anchor='w')
 
 
 def askagain(roster):
