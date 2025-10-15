@@ -94,8 +94,8 @@ begin
   end;
 end;
 
-; Notes:
-; - Per-user data is best created by the application itself under {localappdata}\HungerBens
-;   at first run. Installing to {userappdata} during an elevated install can target the admin
-;   profile instead of the eventual end-user.
-; - If your PyInstaller output folder is named differently, change Source and MyAppExeName above.
+// Notes:
+// - Per-user data is best created by the application itself under {localappdata}\HungerBens
+//   at first run. Installing to {userappdata} during an elevated install can target the admin
+//   profile instead of the eventual end-user.
+// - If your PyInstaller output folder is named differently, change Source and MyAppExeName above.
