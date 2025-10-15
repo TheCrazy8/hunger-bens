@@ -11,7 +11,7 @@
 #endif
 
 [Setup]
-AppId={{73A331F9-76C8-4D3E-832D-8F3B3B6D22D6}
+AppId={{73A331F9-76C8-4D3E-832D-8F3B3B6D22D6}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -31,6 +31,9 @@ PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
 DisableWelcomePage=no
 LicenseFile=..\LICENSE
+UninstallDisplayIcon={app}\{#MyAppExeName}
+UninstallDisplayName={#MyAppName}
+CloseApplications=yes
 ; Uncomment and set if you have an icon for the installer itself
 ; SetupIconFile=icon.ico
 
@@ -62,8 +65,34 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; Optionally remove shared data on uninstall; comment out if you want to keep user data
-Type: filesandordirs; Name: "{commonappdata}\HungerBens"
+; Optionally remove shared data on uninstall; we prompt the user at uninstall time.
+Type: filesandordirs; Name: "{commonappdata}\HungerBens"; Check: ShouldRemoveUserData
+Type: filesandordirs; Name: "{localappdata}\HungerBens"; Check: ShouldRemoveUserData
+Type: filesandordirs; Name: "{userappdata}\HungerBens"; Check: ShouldRemoveUserData
+
+[Code]
+var
+  RemoveUserData: Boolean;
+
+function ShouldRemoveUserData(): Boolean;
+begin
+  Result := RemoveUserData;
+end;
+
+procedure InitializeUninstall();
+begin
+  RemoveUserData := False;
+  if DirExists(ExpandConstant('{commonappdata}\\HungerBens')) or
+     DirExists(ExpandConstant('{localappdata}\\HungerBens')) or
+     DirExists(ExpandConstant('{userappdata}\\HungerBens')) then
+  begin
+    if MsgBox('Do you want to remove all Hunger Bens data (plugins, config, logs) from this machine?',
+              mbConfirmation, MB_YESNO) = IDYES then
+    begin
+      RemoveUserData := True;
+    end;
+  end;
+end;
 
 ; Notes:
 ; - Per-user data is best created by the application itself under {localappdata}\HungerBens

@@ -1704,6 +1704,15 @@ if os.name == 'nt':
 
 
 def askagain(roster):
+    import sys
+    try:
+        has_tty = bool(sys.stdin and sys.stdin.isatty())
+    except Exception:
+        has_tty = False
+    if not has_tty:
+        # No interactive console available; do not prompt again.
+        print("Thank you for using the Hunger Bens Simulator!")
+        return
     while True:
         again = input("Run another simulation? (y/n): ").lower()
         if again == 'y':
@@ -1715,6 +1724,30 @@ def askagain(roster):
     print("Thank you for using the Hunger Bens Simulator!")
 
 def mainloop(roster_override=None, clear_screen: bool = True):
+    import sys
+    # If started without a console (e.g., windowed EXE), avoid interactive prompts
+    try:
+        has_tty = bool(sys.stdin and sys.stdin.isatty())
+    except Exception:
+        has_tty = False
+    if not has_tty:
+        if os.name == 'nt':
+            try:
+                import tkinter
+                root = tkinter.Tk()
+                gui = HungerBensGUI(root)
+                try:
+                    sv_ttk.set_theme("dark")
+                except Exception:
+                    pass
+                root.mainloop()
+                return
+            except Exception:
+                os.environ["HUNGER_BENS_NO_INTERACTIVE"] = "1"
+                return cli_entry()
+        else:
+            os.environ["HUNGER_BENS_NO_INTERACTIVE"] = "1"
+            return cli_entry()
     seedin = input("Enter a seed (or leave blank for random): ").strip()
     seedin = int(seedin) if seedin.isdigit() else None
     maxday = input("Enter max days (default 30): ").strip()
@@ -1807,7 +1840,10 @@ def cli_entry():
         import tkinter
         root = tkinter.Tk()
         gui = HungerBensGUI(root)
-        sv_ttk.set_theme("dark")
+        try:
+            sv_ttk.set_theme("dark")
+        except Exception:
+            pass
         root.mainloop()
         return
     if args.interactive:
@@ -1835,13 +1871,40 @@ def cli_entry():
         )
 
 if __name__ == "__main__":
-    # If launched without arguments, fallback to prior behavior (interactive)
     import sys
-    # Allow suppression of interactive mode when imported in Pyodide (web) context
+    # Web/Pyodide path explicitly disables interactive
     if os.environ.get("HUNGER_BENS_NO_INTERACTIVE") == "1":
         cli_entry()
     else:
-        if len(sys.argv) > 1:
+        # If packaged (PyInstaller) or without a console TTY, prefer GUI on Windows
+        is_frozen = bool(getattr(sys, 'frozen', False))
+        try:
+            has_tty = bool(sys.stdin and sys.stdin.isatty())
+        except Exception:
+            has_tty = False
+        prefer_gui = (os.name == 'nt') and (is_frozen or not has_tty)
+
+        if len(sys.argv) > 1 and not prefer_gui:
+            # Respect CLI args when present and console available
             cli_entry()
+        elif os.name == 'nt':
+            # Launch Windows GUI by default for packaged/no-tty scenarios
+            try:
+                import tkinter
+                root = tkinter.Tk()
+                gui = HungerBensGUI(root)
+                try:
+                    sv_ttk.set_theme("dark")
+                except Exception:
+                    pass
+                root.mainloop()
+            except Exception:
+                # If GUI fails, fall back to CLI without interactive prompts
+                os.environ["HUNGER_BENS_NO_INTERACTIVE"] = "1"
+                cli_entry()
         else:
-            mainloop(clear_screen=True)
+            # Non-Windows: use CLI; interactive only when TTY is present
+            if len(sys.argv) > 1 or not has_tty:
+                cli_entry()
+            else:
+                mainloop(clear_screen=True)
