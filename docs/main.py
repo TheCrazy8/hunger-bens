@@ -786,6 +786,31 @@ def _iter_plugin_paths() -> List[str]:
             ordered.append(p)
     return [p for p in ordered if os.path.isdir(p)]
 
+def scan_plugin_files() -> List[Tuple[str, str]]:
+    """Return list of (plugin_id, absolute_path) for available plugin .py files without importing.
+    Skips __init__.py.
+    """
+    results: List[Tuple[str, str]] = []
+    for d in _iter_plugin_paths():
+        try:
+            for fname in os.listdir(d):
+                if not fname.endswith('.py') or fname == '__init__.py':
+                    continue
+                fpath = os.path.join(d, fname)
+                pid = os.path.splitext(fname)[0]
+                results.append((pid, fpath))
+        except Exception:
+            continue
+    # Dedup by id with first occurrence kept
+    seen: Set[str] = set()
+    unique: List[Tuple[str, str]] = []
+    for pid, path in results:
+        if pid in seen:
+            continue
+        seen.add(pid)
+        unique.append((pid, path))
+    return unique
+
 def load_windows_plugins(log_fn: Optional[Callable[[str], None]] = None):
     global _PLUGINS_LOADED
     if _PLUGINS_LOADED:
@@ -812,13 +837,36 @@ def load_windows_plugins(log_fn: Optional[Callable[[str], None]] = None):
         _PLUGINS_LOADED = True
         return
     loaded_any = False
+    # Integrate config for per-plugin enable/disable; discover new plugins
+    cfg_plugins: Dict[str, Any] = _CONFIG.get('plugins', {}) if isinstance(_CONFIG.get('plugins'), dict) else {}
+    discovered = scan_plugin_files()
+    # Seed config entries for new plugins
+    for pid, ppath in discovered:
+        entry = cfg_plugins.get(pid)
+        if not isinstance(entry, dict):
+            cfg_plugins[pid] = {"enabled": True, "path": ppath}
+        else:
+            # Update path if changed
+            if ppath and entry.get('path') != ppath:
+                entry['path'] = ppath
+    _CONFIG['plugins'] = cfg_plugins
+    try:
+        save_config(_CONFIG)
+    except Exception:
+        pass
     for d in plugin_dirs:
         try:
             for fname in os.listdir(d):
                 if not fname.endswith('.py') or fname == '__init__.py':
                     continue
                 fpath = os.path.join(d, fname)
-                mod_name = f"hb_plugin_{os.path.splitext(fname)[0]}"
+                pid = os.path.splitext(fname)[0]
+                # Respect per-plugin enable flag
+                pen = cfg_plugins.get(pid, {}).get('enabled', True)
+                if not pen:
+                    _log_plugin(f"[Plugins] Skipped disabled plugin {fname}", log_fn)
+                    continue
+                mod_name = f"hb_plugin_{pid}"
                 try:
                     spec = importlib.util.spec_from_file_location(mod_name, fpath)
                     if not spec or not spec.loader:
@@ -1573,7 +1621,8 @@ if os.name == 'nt':
 
             # Section: Plugins
             ttk.Label(c, text="Plugins", font=(None, 12, 'bold')).pack(anchor='w')
-            ttk.Label(c, text="Manage plugin folders. These are scanned on Windows when plugins are enabled.").pack(anchor='w', pady=(0,8))
+            desc = "Manage plugin folders and enable/disable individual plugins."
+            ttk.Label(c, text=desc).pack(anchor='w', pady=(0,8))
 
             paths = self._compute_plugin_paths()
             # Scrollable area if many rows
@@ -1602,8 +1651,51 @@ if os.name == 'nt':
 
             # Other settings placeholders (future)
             ttk.Separator(c).pack(fill='x', pady=10)
-            ttk.Label(c, text="Preferences", font=(None, 12, 'bold')).pack(anchor='w')
-            ttk.Label(c, text="More settings can be added here in the future.").pack(anchor='w')
+            # Plugin enable/disable list
+            ttk.Label(c, text="Installed Plugins", font=(None, 12, 'bold')).pack(anchor='w')
+            list_frame = ttk.Frame(c)
+            list_frame.pack(fill='both', expand=True)
+            inner = ttk.Frame(list_frame)
+            inner.pack(fill='both', expand=True)
+
+            def refresh_plugins():
+                for w in inner.winfo_children():
+                    w.destroy()
+                plugins = scan_plugin_files()
+                cfg_pl = _CONFIG.get('plugins', {}) if isinstance(_CONFIG.get('plugins'), dict) else {}
+                rowi = 0
+                for pid, path in plugins:
+                    entry = cfg_pl.get(pid, {"enabled": True, "path": path})
+                    var = tkinter.BooleanVar(value=bool(entry.get('enabled', True)))
+                    def make_cb(p_id: str, v: tkinter.BooleanVar):
+                        def _cb(*_):
+                            cfg = _CONFIG.get('plugins')
+                            if not isinstance(cfg, dict):
+                                _CONFIG['plugins'] = {}
+                                cfg = _CONFIG['plugins']
+                            ent = cfg.get(p_id)
+                            if not isinstance(ent, dict):
+                                ent = {}
+                                cfg[p_id] = ent
+                            ent['enabled'] = bool(v.get())
+                            ent['path'] = path
+                            save_config(_CONFIG)
+                        return _cb
+                    var.trace_add('write', make_cb(pid, var))
+                    row = ttk.Frame(inner)
+                    row.grid(row=rowi, column=0, sticky='we', pady=2)
+                    row.columnconfigure(1, weight=1)
+                    ttk.Checkbutton(row, text=pid, variable=var).grid(row=0, column=0, sticky='w')
+                    ttk.Label(row, text=path, wraplength=360).grid(row=0, column=1, sticky='w', padx=6)
+                    rowi += 1
+
+            btns = ttk.Frame(c)
+            btns.pack(fill='x', pady=(6,0))
+            ttk.Button(btns, text="Refresh", command=refresh_plugins).pack(side='left')
+            ttk.Button(btns, text="Close", command=win.destroy).pack(side='right')
+
+            # Initial population
+            refresh_plugins()
 
 
 def askagain(roster):
