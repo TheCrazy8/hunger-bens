@@ -31,6 +31,55 @@ else:
     pass
 
 # -----------------------------
+# Persistent Config (plugins, etc.)
+# -----------------------------
+_CONFIG: Dict[str, Any] = {}
+
+def _default_plugins_enabled() -> bool:
+    return os.name == 'nt'
+
+def get_config_path() -> str:
+    # Prefer user roaming AppData on Windows; fallback to local file next to script
+    if os.name == 'nt':
+        base = os.environ.get('APPDATA') or os.environ.get('LOCALAPPDATA')
+        if base:
+            cfg_dir = os.path.join(base, 'HungerBens')
+            try:
+                os.makedirs(cfg_dir, exist_ok=True)
+            except Exception:
+                pass
+            return os.path.join(cfg_dir, 'config.json')
+    # Non-Windows or no appdata: store beside script
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(here, 'config.json')
+
+def load_config() -> Dict[str, Any]:
+    cfg = {"plugins_enabled": _default_plugins_enabled()}
+    path = get_config_path()
+    try:
+        if os.path.isfile(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    cfg.update(data)
+    except Exception:
+        # Ignore and use defaults
+        pass
+    return cfg
+
+def save_config(cfg: Dict[str, Any]):
+    try:
+        path = get_config_path()
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, indent=2)
+    except Exception:
+        # Best-effort only
+        pass
+
+# Initialize config cache
+_CONFIG = load_config()
+
+# -----------------------------
 # Base Tribute Data (can be replaced/extended by JSON roster)
 # -----------------------------
 dicty: Dict[str, Dict[str, Any]] = {
@@ -1295,10 +1344,10 @@ def run_simulation(
     enable_plugins: Optional[bool] = None,
 ):
     tribute_source = roster if roster else dicty
-    # Windows-only plugin activation (enabled by default on Windows unless explicitly disabled)
+    # Windows-only plugin activation (default comes from config unless explicitly overridden)
     try:
         if enable_plugins is None:
-            enable = (os.name == 'nt')
+            enable = bool(_CONFIG.get('plugins_enabled', _default_plugins_enabled())) and (os.name == 'nt')
         else:
             enable = bool(enable_plugins) and (os.name == 'nt')
         if enable:
@@ -1329,7 +1378,12 @@ if os.name == 'nt':
             self._build_widgets()
             self.current_sim: Optional[HungerBensSimulator] = None
             self.roster_override: Optional[Dict[str, Dict[str, Any]]] = None
-            self.plugins_var = tkinter.BooleanVar(value=True)
+            self.plugins_var = tkinter.BooleanVar(value=bool(_CONFIG.get('plugins_enabled', _default_plugins_enabled())))
+            # Persist when toggled
+            try:
+                self.plugins_var.trace_add('write', lambda *args: self._on_plugins_toggle())
+            except Exception:
+                pass
 
         def _build_widgets(self):
             frm = ttk.Frame(self.root, padding=10)
@@ -1479,6 +1533,14 @@ if os.name == 'nt':
             except Exception as e:
                 messagebox.showerror("Run Error", f"Simulation failed: {e}")
 
+        def _on_plugins_toggle(self):
+            val = bool(self.plugins_var.get())
+            try:
+                _CONFIG['plugins_enabled'] = val
+                save_config(_CONFIG)
+            except Exception:
+                pass
+
         def _compute_plugin_paths(self):
             here = os.path.dirname(os.path.abspath(__file__))
             repo_plugins = os.path.join(here, 'plugins')
@@ -1613,6 +1675,7 @@ def parse_args():
         parser.add_argument("--gui", action="store_true", help="Launch Tkinter GUI (Windows only)")
         parser.add_argument("--no-plugins", action="store_true", help="Disable Windows plugin loader")
         parser.add_argument("--plugin-dir", type=str, help="Directory for Windows plugins (overrides default)")
+        parser.add_argument("--plugins", action="store_true", help="Enable Windows plugin loader (overrides config)")
     return parser.parse_args()
 
 def cli_entry():
@@ -1657,6 +1720,13 @@ def cli_entry():
         if os.name == 'nt':
             if getattr(args, 'plugin_dir', None):
                 os.environ['HUNGER_BENS_PLUGIN_DIRS'] = args.plugin_dir
+        # Determine plugin enablement: CLI overrides config; default uses config
+        enable_plugins = None
+        if os.name == 'nt':
+            if getattr(args, 'no_plugins', False):
+                enable_plugins = False
+            elif getattr(args, 'plugins', False):
+                enable_plugins = True
         run_simulation(
             seed=args.seed,
             max_days=args.max_days,
@@ -1664,7 +1734,7 @@ def cli_entry():
             export_log=args.export_log,
             roster=roster_data,
             strict_shutdown=args.strict_shutdown,
-            enable_plugins=(None if os.name != 'nt' else (False if getattr(args, 'no_plugins', False) else True)),
+            enable_plugins=enable_plugins,
         )
 
 if __name__ == "__main__":

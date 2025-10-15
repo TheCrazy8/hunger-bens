@@ -15,20 +15,22 @@ VSVersionInfo(
     date=(0, 0)
   ),
   kids=[
-    StringFileInfo([
-      StringTable(
-        '040904B0',
-        [
-          StringStruct('CompanyName', 'Hunger Bens'),
-          StringStruct('FileDescription', 'Hunger Bens Simulator'),
-          StringStruct('FileVersion', '1.0.0.0'),
-          StringStruct('InternalName', 'HungerBens'),
-          StringStruct('LegalCopyright', '(c) 2025 Hunger Bens'),
-          StringStruct('OriginalFilename', 'HungerBens.exe'),
-          StringStruct('ProductName', 'Hunger Bens'),
-          StringStruct('ProductVersion', '1.0.0.0')
-        ]
-      ])
+    StringFileInfo(
+      [
+        StringTable(
+          '040904B0',
+          [
+            StringStruct('CompanyName', 'Hunger Bens'),
+            StringStruct('FileDescription', 'Hunger Bens Simulator'),
+            StringStruct('FileVersion', '1.0.0.0'),
+            StringStruct('InternalName', 'HungerBens'),
+            StringStruct('LegalCopyright', '(c) 2025 Hunger Bens'),
+            StringStruct('OriginalFilename', 'HungerBens.exe'),
+            StringStruct('ProductName', 'Hunger Bens'),
+            StringStruct('ProductVersion', '1.0.0.0')
+          ]
+        )
+      ]
     ),
     VarFileInfo([
       VarStruct('Translation', [1033, 1200])
