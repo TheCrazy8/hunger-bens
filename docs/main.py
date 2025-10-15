@@ -702,15 +702,8 @@ def _log_plugin(line: str, log_fn: Optional[Callable[[str], None]] = None):
         pass
 
 def _iter_plugin_paths() -> List[str]:
-    # Prefer executable dir when frozen (PyInstaller), else script dir
-    try:
-        if getattr(sys, 'frozen', False):
-            base = os.path.dirname(sys.executable)
-        else:
-            base = os.path.dirname(os.path.abspath(__file__))
-    except Exception:
-        base = os.path.dirname(os.path.abspath(__file__))
-    default_dir = os.path.join(base, 'plugins')
+    here = os.path.dirname(os.path.abspath(__file__))
+    default_dir = os.path.join(here, 'plugins')
     env_dirs = os.environ.get('HUNGER_BENS_PLUGIN_DIRS', '')
     paths = [p for p in env_dirs.split(os.pathsep) if p] or [default_dir]
     return [p for p in paths if os.path.isdir(p)]
