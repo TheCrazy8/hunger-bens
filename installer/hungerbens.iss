@@ -22,7 +22,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputBaseFilename=HungerBensInstaller
-OutputDir=installer\out
+OutputDir=out
 WizardStyle=modern
 Compression=lzma
 SolidCompression=yes
@@ -30,7 +30,7 @@ ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
 DisableWelcomePage=no
-LicenseFile=LICENSE
+LicenseFile=..\LICENSE
 ; Uncomment and set if you have an icon for the installer itself
 ; SetupIconFile=icon.ico
 
@@ -48,7 +48,7 @@ Name: "{commonappdata}\HungerBens\plugins"; Flags: uninsalwaysuninstall
 
 [Files]
 ; Install the application binaries built by PyInstaller (adjust Source if folder name differs)
-Source: "dist\HungerBens\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\\dist\\HungerBens\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Optionally include default assets/configs into ProgramData (shared)
 ; Source: "assets\*"; DestDir: "{commonappdata}\HungerBens"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist

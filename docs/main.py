@@ -78,6 +78,11 @@ def save_config(cfg: Dict[str, Any]):
 
 # Initialize config cache
 _CONFIG = load_config()
+# Ensure the config file exists on first run by persisting defaults
+try:
+    save_config(_CONFIG)
+except Exception:
+    pass
 
 # -----------------------------
 # Base Tribute Data (can be replaced/extended by JSON roster)
