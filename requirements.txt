@@ -1,2 +1,0 @@
-pyinstaller>=6.6
-sv_ttk>=2.0.0
