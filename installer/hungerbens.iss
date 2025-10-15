@@ -79,7 +79,7 @@ begin
   Result := RemoveUserData;
 end;
 
-procedure InitializeUninstall();
+function InitializeUninstall(): Boolean;
 begin
   RemoveUserData := False;
   if DirExists(ExpandConstant('{commonappdata}\\HungerBens')) or
@@ -92,6 +92,7 @@ begin
       RemoveUserData := True;
     end;
   end;
+  Result := True;  // Continue with uninstall
 end;
 
 // Notes:
