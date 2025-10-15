@@ -6,23 +6,30 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
 <style>
- body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#111; color:#eee; }
- header { background:#222; padding:1rem; }
- h1 { margin:0; font-size:1.4rem; }
- main { padding:1rem; display:flex; flex-direction:column; gap:1rem; }
- fieldset { border:1px solid #444; padding:0.75rem 1rem; }
- legend { padding:0 .5rem; }
- label { display:block; margin:.4rem 0 .15rem; font-size:.85rem; text-transform:uppercase; letter-spacing:.08em; }
- input[type=text], input[type=number], textarea { width:100%; box-sizing:border-box; padding:.5rem; background:#1b1b1b; color:#eee; border:1px solid #333; border-radius:4px; font-family:monospace; }
- textarea { min-height:140px; resize:vertical; }
- button { background:#444; color:#eee; border:1px solid #555; padding:.55rem .9rem; border-radius:4px; cursor:pointer; font-weight:600; }
- button:hover { background:#555; }
- #log { background:#000; min-height:280px; white-space:pre-wrap; padding:.75rem; border:1px solid #333; font-family:monospace; overflow-y:auto; }
- .row { display:flex; gap:1rem; flex-wrap:wrap; }
- .grow { flex:1; }
- footer { text-align:center; font-size:.7rem; padding:1rem 0 2rem; color:#888; }
- a { color:#7cc3ff; }
- .inline { display:inline-block; margin-right:.6rem; }
+  body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#111; color:#eee; }
+  header { background:#222; padding:1rem; }
+  h1 { margin:0; font-size:1.4rem; }
+  main { padding:1rem; display:flex; flex-direction:column; gap:1rem; }
+  fieldset { border:1px solid #444; padding:0.75rem 1rem; }
+  legend { padding:0 .5rem; }
+  label { display:block; margin:.4rem 0 .15rem; font-size:.85rem; text-transform:uppercase; letter-spacing:.08em; }
+  input[type=text], input[type=number], textarea { width:100%; box-sizing:border-box; padding:.5rem; background:#1b1b1b; color:#eee; border:1px solid #333; border-radius:4px; font-family:monospace; }
+  textarea { min-height:140px; resize:vertical; }
+  button { background:#444; color:#eee; border:1px solid #555; padding:.55rem .9rem; border-radius:4px; cursor:pointer; font-weight:600; }
+  button:hover { background:#555; }
+  select { background:#1b1b1b; color:#eee; border:1px solid #333; border-radius:4px; padding:.45rem .5rem; }
+  #log { background:#000; min-height:280px; white-space:pre-wrap; padding:.75rem; border:1px solid #333; font-family:monospace; overflow-y:auto; }
+  .row { display:flex; gap:1rem; flex-wrap:wrap; }
+  .grow { flex:1; min-width:220px; }
+  footer { text-align:center; font-size:.7rem; padding:1rem 0 2rem; color:#888; }
+  a { color:#7cc3ff; }
+  .inline { display:inline-block; margin-right:.6rem; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { border-bottom:1px solid #333; padding:.4rem .3rem; text-align:left; }
+  th { font-size:.8rem; text-transform:uppercase; color:#bbb; }
+  .actions { white-space:nowrap; }
+  .pill { display:inline-block; padding:.15rem .5rem; border:1px solid #333; border-radius:999px; font-size:.8rem; margin:.15rem .25rem .15rem 0; }
+  details.advanced { margin-top:.5rem; }
 </style>
 </head>
 <body>
@@ -44,20 +51,130 @@
         <input type="number" id="strict" placeholder="(blank)" min="1" max="200"/>
       </div>
     </div>
-  <label for="roster">Custom Roster JSON (list or dict)</label>
-  <textarea id="roster" placeholder='[{"key":"x","name":"Alpha","age":20,"district":3}]'></textarea>
-  <label for="content">Content JSON (extend weapons/items/hazards)</label>
-  <textarea id="content" placeholder='{"weapons":{"laser spoon":"vaporizes"},"items":["force field"],"hazards":{"gravity well":"spaghettified"}}'></textarea>
+  </fieldset>
+
+  <fieldset>
+    <legend>Roster Builder</legend>
+    <div class="row">
+      <div class="grow">
+        <label for="r_key">Key</label>
+        <input type="text" id="r_key" placeholder="unique-id (used when roster type is dict)"/>
+      </div>
+      <div class="grow">
+        <label for="r_name">Name</label>
+        <input type="text" id="r_name" placeholder="Tribute name"/>
+      </div>
+      <div>
+        <label for="r_age">Age</label>
+        <input type="number" id="r_age" min="1" max="120" placeholder="e.g. 18"/>
+      </div>
+      <div>
+        <label for="r_district">District</label>
+        <input type="number" id="r_district" min="1" max="20" placeholder="e.g. 3"/>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <button id="addTributeBtn" type="button">Add Tribute</button>
+      </div>
+      <div>
+        <label for="rosterType">Roster Type</label>
+        <select id="rosterType">
+          <option value="list" selected>List of objects</option>
+          <option value="dict">Dict keyed by "key"</option>
+        </select>
+      </div>
+    </div>
+    <div style="overflow:auto;">
+      <table aria-label="Roster">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Key</th>
+            <th>Name</th>
+            <th>Age</th>
+            <th>District</th>
+            <th class="actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="rosterTableBody"></tbody>
+      </table>
+    </div>
+
+    <details class="advanced">
+      <summary>Advanced: Raw Roster JSON</summary>
+      <label for="roster">Custom Roster JSON (list or dict)</label>
+      <textarea id="roster" placeholder='[{"key":"x","name":"Alpha","age":20,"district":3}]'></textarea>
+    </details>
+  </fieldset>
+
+  <fieldset>
+    <legend>Content Builder</legend>
+    <h3 style="margin:.2rem 0 .4rem; font-size:1rem;">Weapons</h3>
+    <div class="row">
+      <div class="grow">
+        <label for="w_name">Name</label>
+        <input type="text" id="w_name" placeholder="e.g. laser spoon"/>
+      </div>
+      <div class="grow">
+        <label for="w_desc">Description/Effect</label>
+        <input type="text" id="w_desc" placeholder="e.g. vaporizes"/>
+      </div>
+      <div style="align-self:end;">
+        <button id="addWeaponBtn" type="button">Add Weapon</button>
+      </div>
+    </div>
+    <div id="weaponsList" aria-live="polite"></div>
+
+    <h3 style="margin:1rem 0 .4rem; font-size:1rem;">Items</h3>
+    <div class="row">
+      <div class="grow">
+        <label for="i_name">Item</label>
+        <input type="text" id="i_name" placeholder="e.g. force field"/>
+      </div>
+      <div style="align-self:end;">
+        <button id="addItemBtn" type="button">Add Item</button>
+      </div>
+    </div>
+    <div id="itemsList" aria-live="polite"></div>
+
+    <h3 style="margin:1rem 0 .4rem; font-size:1rem;">Hazards</h3>
+    <div class="row">
+      <div class="grow">
+        <label for="h_name">Name</label>
+        <input type="text" id="h_name" placeholder="e.g. gravity well"/>
+      </div>
+      <div class="grow">
+        <label for="h_desc">Description/Effect</label>
+        <input type="text" id="h_desc" placeholder="e.g. spaghettified"/>
+      </div>
+      <div style="align-self:end;">
+        <button id="addHazardBtn" type="button">Add Hazard</button>
+      </div>
+    </div>
+    <div id="hazardsList" aria-live="polite"></div>
+
+    <details class="advanced">
+      <summary>Advanced: Raw Content JSON</summary>
+      <label for="content">Content JSON (extend weapons/items/hazards)</label>
+      <textarea id="content" placeholder='{"weapons":{"laser spoon":"vaporizes"},"items":["force field"],"hazards":{"gravity well":"spaghettified"}}'></textarea>
+    </details>
+  </fieldset>
+
+  <fieldset>
+    <legend>Run</legend>
     <div class="row">
       <button id="runBtn">Run Simulation</button>
       <button id="clearBtn" type="button">Clear Log</button>
       <button id="downloadBtn" type="button" disabled>Download JSON Log</button>
     </div>
   </fieldset>
+
   <fieldset>
     <legend>Log Output</legend>
     <div id="log" aria-live="polite"></div>
   </fieldset>
+
   <fieldset>
     <legend>Status</legend>
     <div id="status">Loading Pyodide...</div>
@@ -66,8 +183,15 @@
 <footer>
   Built for static hosting on GitHub Pages. Full simulator loaded via <a href="https://pyodide.org/" target="_blank" rel="noopener">Pyodide</a>.
 </footer>
+
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
 <script>
+// UI state for builders
+const rosterData = [];
+const weaponsData = []; // [{name, desc}]
+const itemsData = [];   // [name]
+const hazardsData = []; // [{name, desc}]
+
 const statusEl = document.getElementById('status');
 const logEl = document.getElementById('log');
 const runBtn = document.getElementById('runBtn');
@@ -82,6 +206,202 @@ function appendLog(line){
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+// ---------- Roster builder ----------
+function addTribute() {
+  const key = document.getElementById('r_key').value.trim();
+  const name = document.getElementById('r_name').value.trim();
+  const age = parseInt(document.getElementById('r_age').value, 10);
+  const district = parseInt(document.getElementById('r_district').value, 10);
+
+  if (!name) { alert('Name is required'); return; }
+  if (isNaN(age)) { alert('Age is required'); return; }
+  if (isNaN(district)) { alert('District is required'); return; }
+
+  rosterData.push({ key, name, age, district });
+  document.getElementById('r_key').value = '';
+  document.getElementById('r_name').value = '';
+  document.getElementById('r_age').value = '';
+  document.getElementById('r_district').value = '';
+  renderRoster();
+}
+
+function removeTribute(idx) {
+  rosterData.splice(idx, 1);
+  renderRoster();
+}
+
+function renderRoster() {
+  const tbody = document.getElementById('rosterTableBody');
+  tbody.textContent = '';
+  rosterData.forEach((t, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i+1}</td>
+      <td>${t.key ? escapeHtml(t.key) : ''}</td>
+      <td>${escapeHtml(t.name)}</td>
+      <td>${Number.isFinite(t.age) ? t.age : ''}</td>
+      <td>${Number.isFinite(t.district) ? t.district : ''}</td>
+      <td class="actions">
+        <button type="button" data-i="${i}" class="rmTribute">Remove</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('.rmTribute').forEach(btn => {
+    btn.addEventListener('click', (e) => removeTribute(parseInt(e.currentTarget.dataset.i, 10)));
+  });
+}
+
+// ---------- Content builder ----------
+function addWeapon() {
+  const name = document.getElementById('w_name').value.trim();
+  const desc = document.getElementById('w_desc').value.trim();
+  if (!name) { alert('Weapon name is required'); return; }
+  weaponsData.push({ name, desc });
+  document.getElementById('w_name').value = '';
+  document.getElementById('w_desc').value = '';
+  renderWeapons();
+}
+function removeWeapon(idx) {
+  weaponsData.splice(idx, 1);
+  renderWeapons();
+}
+function renderWeapons() {
+  const wrap = document.getElementById('weaponsList');
+  wrap.textContent = '';
+  if (weaponsData.length === 0) return;
+  const tbl = document.createElement('table');
+  tbl.innerHTML = `
+    <thead><tr><th>#</th><th>Name</th><th>Description</th><th class="actions">Actions</th></tr></thead>
+    <tbody></tbody>`;
+  const tbody = tbl.querySelector('tbody');
+  weaponsData.forEach((w, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i+1}</td>
+      <td>${escapeHtml(w.name)}</td>
+      <td>${escapeHtml(w.desc || '')}</td>
+      <td class="actions"><button type="button" data-i="${i}" class="rmWeapon">Remove</button></td>`;
+    tbody.appendChild(tr);
+  });
+  wrap.appendChild(tbl);
+  wrap.querySelectorAll('.rmWeapon').forEach(btn => {
+    btn.addEventListener('click', (e) => removeWeapon(parseInt(e.currentTarget.dataset.i, 10)));
+  });
+}
+
+function addItem() {
+  const name = document.getElementById('i_name').value.trim();
+  if (!name) { alert('Item name is required'); return; }
+  itemsData.push(name);
+  document.getElementById('i_name').value = '';
+  renderItems();
+}
+function removeItem(idx) {
+  itemsData.splice(idx, 1);
+  renderItems();
+}
+function renderItems() {
+  const wrap = document.getElementById('itemsList');
+  wrap.textContent = '';
+  if (itemsData.length === 0) return;
+  const frag = document.createDocumentFragment();
+  itemsData.forEach((s, i) => {
+    const pill = document.createElement('span');
+    pill.className = 'pill';
+    pill.textContent = s;
+    const btn = document.createElement('button');
+    btn.textContent = '×';
+    btn.style.marginLeft = '.4rem';
+    btn.style.padding = '.1rem .4rem';
+    btn.addEventListener('click', () => removeItem(i));
+    const wrapPill = document.createElement('span');
+    wrapPill.appendChild(pill);
+    wrapPill.appendChild(btn);
+    wrapPill.style.marginRight = '.25rem';
+    frag.appendChild(wrapPill);
+  });
+  wrap.appendChild(frag);
+}
+
+function addHazard() {
+  const name = document.getElementById('h_name').value.trim();
+  const desc = document.getElementById('h_desc').value.trim();
+  if (!name) { alert('Hazard name is required'); return; }
+  hazardsData.push({ name, desc });
+  document.getElementById('h_name').value = '';
+  document.getElementById('h_desc').value = '';
+  renderHazards();
+}
+function removeHazard(idx) {
+  hazardsData.splice(idx, 1);
+  renderHazards();
+}
+function renderHazards() {
+  const wrap = document.getElementById('hazardsList');
+  wrap.textContent = '';
+  if (hazardsData.length === 0) return;
+  const tbl = document.createElement('table');
+  tbl.innerHTML = `
+    <thead><tr><th>#</th><th>Name</th><th>Description</th><th class="actions">Actions</th></tr></thead>
+    <tbody></tbody>`;
+  const tbody = tbl.querySelector('tbody');
+  hazardsData.forEach((h, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i+1}</td>
+      <td>${escapeHtml(h.name)}</td>
+      <td>${escapeHtml(h.desc || '')}</td>
+      <td class="actions"><button type="button" data-i="${i}" class="rmHazard">Remove</button></td>`;
+    tbody.appendChild(tr);
+  });
+  wrap.appendChild(tbl);
+  wrap.querySelectorAll('.rmHazard').forEach(btn => {
+    btn.addEventListener('click', (e) => removeHazard(parseInt(e.currentTarget.dataset.i, 10)));
+  });
+}
+
+// ---------- Sync builders -> hidden JSON textareas ----------
+function syncBuildersToJSON() {
+  // Roster
+  const rosterType = document.getElementById('rosterType').value;
+  let rosterObj;
+  if (rosterType === 'dict') {
+    const m = {};
+    rosterData.forEach((t, i) => {
+      const key = t.key || `t${i+1}`;
+      const { key: _k, ...rest } = t;
+      m[key] = rest;
+    });
+    rosterObj = m;
+  } else {
+    rosterObj = rosterData.slice();
+  }
+  document.getElementById('roster').value = JSON.stringify(rosterObj, null, 2);
+
+  // Content
+  const weapons = {};
+  weaponsData.forEach(w => { weapons[w.name] = w.desc || ''; });
+  const hazards = {};
+  hazardsData.forEach(h => { hazards[h.name] = h.desc || ''; });
+  const contentObj = {
+    weapons,
+    items: itemsData.slice(),
+    hazards
+  };
+  document.getElementById('content').value = JSON.stringify(contentObj, null, 2);
+}
+
+function escapeHtml(s) {
+  return (s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Wire builder buttons
+document.getElementById('addTributeBtn').addEventListener('click', addTribute);
+document.getElementById('addWeaponBtn').addEventListener('click', addWeapon);
+document.getElementById('addItemBtn').addEventListener('click', addItem);
+document.getElementById('addHazardBtn').addEventListener('click', addHazard);
+
+// ---------- Pyodide / Simulator ----------
 async function initPyodide(){
   try {
     pyodide = await loadPyodide({indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/'});
@@ -90,7 +410,14 @@ async function initPyodide(){
     const resp = await fetch('main.py');
     const code = await resp.text();
     pyodide.FS.writeFile('main.py', code);
-    const importCode = `import os, importlib.util, sys\nos.environ['HUNGER_BENS_NO_INTERACTIVE']='1'\nspec = importlib.util.spec_from_file_location('hunger_main','main.py')\nmod = importlib.util.module_from_spec(spec)\nsys.modules['hunger_main']=mod\nspec.loader.exec_module(mod)`;
+    const importCode = `
+import os, importlib.util, sys
+os.environ['HUNGER_BENS_NO_INTERACTIVE']='1'
+spec = importlib.util.spec_from_file_location('hunger_main','main.py')
+mod = importlib.util.module_from_spec(spec)
+sys.modules['hunger_main']=mod
+spec.loader.exec_module(mod)
+`;
     await pyodide.runPythonAsync(importCode);
     simulatorReady = true;
     statusEl.textContent = 'Ready.';
@@ -104,9 +431,13 @@ clearBtn.addEventListener('click', () => { logEl.textContent=''; });
 
 runBtn.addEventListener('click', async () => {
   if(!pyodide || !simulatorReady){ appendLog('Simulator not loaded yet.'); return; }
+  // Ensure JSON textareas reflect builder inputs
+  syncBuildersToJSON();
+
   logEl.textContent='';
   statusEl.textContent='Running simulation...';
   downloadBtn.disabled = true;
+
   const seedVal = document.getElementById('seed').value.trim();
   const daysVal = parseInt(document.getElementById('days').value,10) || 30;
   const strictVal = document.getElementById('strict').value.trim();
@@ -115,7 +446,33 @@ runBtn.addEventListener('click', async () => {
   const pySeedLiteral = seedVal !== '' && /^\d+$/.test(seedVal) ? seedVal : 'None';
   const pyStrictLiteral = strictVal !== '' && /^\d+$/.test(strictVal) ? strictVal : 'None';
 
-  const pyCode = `from hunger_main import run_simulation, integrate_custom_content, load_custom_content_from_string\nimport json, os\nlog_lines=[]\nseed=${pySeedLiteral}\nmax_days=${daysVal}\nstrict=${pyStrictLiteral}\nroster_json=${jsonEscape(rosterTxt)}\ncontent_json=${jsonEscape(contentTxt)}\nroster=None\nif roster_json not in (None, '', 'None'):\n    try:\n        data=json.loads(roster_json)\n        if isinstance(data, list):\n            roster={f'user{idx+1}': val for idx,val in enumerate(data)}\n        elif isinstance(data, dict):\n            roster=data\n    except Exception as e:\n        log_lines.append(f'Roster parse error: {e}')\nif content_json not in (None,'','None'):\n    try:\n        cc = load_custom_content_from_string(content_json)\n        if isinstance(cc, dict) and cc:\n            integrate_custom_content(cc)\n            log_lines.append('Custom content integrated (web).')\n        else:\n            log_lines.append('Content JSON provided but empty or invalid.')\n    except Exception as e:\n        log_lines.append(f'Content parse error: {e}')\n\ndef capture(line):\n    log_lines.append(line)\n\nsim = run_simulation(seed=seed if seed is not None else None, max_days=max_days, verbose=True, roster=roster, strict_shutdown=strict if strict is not None else None, log_callback=capture)\ntry:\n    alliances = sim.alliances.to_dict() if hasattr(sim, 'alliances') else {}\n    tributes_out = []\n    if hasattr(sim, 'tributes'):\n        for t in sim.tributes:\n            td = getattr(sim, '_tribute_to_dict', lambda x: x.__dict__)(t)\n            tributes_out.append(td)\n    death_log = getattr(sim, 'death_log', [])\n    stats = getattr(sim, 'history_stats', {})\nexcept Exception as e:\n    alliances = {}\n    tributes_out = []\n    death_log = []\n    stats = {}\n    log_lines.append(f'Extraction error: {e}')\nresult = {"seed": seed, "max_days": max_days, "strict_shutdown": strict, "log": log_lines, "alliances": alliances, "tributes": tributes_out, "death_log": death_log, "stats": stats}\n`;
+  const pyCode = `
+from hunger_main import run_simulation, integrate_custom_content, load_custom_content_from_string
+import json
+seed = ${pySeedLiteral}
+max_days = ${daysVal}
+strict_day = ${pyStrictLiteral}
+roster_text = ${JSON.stringify(rosterTxt)}
+content_text = ${JSON.stringify(contentTxt)}
+
+# Load optional content extensions
+if content_text:
+    try:
+        custom = load_custom_content_from_string(content_text)
+        integrate_custom_content(custom)
+    except Exception as e:
+        pass
+
+# Parse optional roster
+roster = None
+if roster_text:
+    try:
+        roster = json.loads(roster_text)
+    except Exception as e:
+        roster = None
+
+result = run_simulation(seed=seed, max_days=max_days, strict_shutdown_day=strict_day, roster=roster)
+`;
   try {
     await pyodide.runPythonAsync(pyCode + "\nimport json\nresult_json = json.dumps(result)\n");
     const resultStr = pyodide.globals.get('result_json');
@@ -126,7 +483,6 @@ runBtn.addEventListener('click', async () => {
     if(Array.isArray(result.log)){
       for(const line of result.log){ appendLog(line); }
     } else if(result.log && typeof result.log === 'object') {
-      // If log became a mapping, iterate its values
       for(const k of Object.keys(result.log)){ appendLog(result.log[k]); }
     } else if(typeof result.log === 'string') {
       appendLog(result.log);
@@ -137,11 +493,6 @@ runBtn.addEventListener('click', async () => {
     statusEl.textContent='Error.';
   }
 });
-
-function jsonEscape(text){
-  if(!text){ return 'None'; }
-  return JSON.stringify(text);
-}
 
 downloadBtn.addEventListener('click', () => {
   if(!lastRunData){ return; }
