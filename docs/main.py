@@ -682,6 +682,130 @@ BASE_EVENT_WEIGHTS = {
 }
 
 # -----------------------------
+# Windows-only Plugin System
+# -----------------------------
+# Plugin API (optional functions in each plugin module under the plugins/ folder next to this file):
+#   - get_custom_content() -> dict with keys like {"weapons": {...}, "items": [...], "hazards": {...}}
+#   - get_events() -> {"day": [callables], "night": [callables], "global": [callables]}
+#   - get_event_weights() -> {callable or callable.__name__: float}
+# Any provided content/events will be merged into the simulator's registries.
+
+_PLUGINS_LOADED = False
+
+def _log_plugin(line: str, log_fn: Optional[Callable[[str], None]] = None):
+    try:
+        if log_fn:
+            log_fn(line)
+        else:
+            print(line)
+    except Exception:
+        pass
+
+def _iter_plugin_paths() -> List[str]:
+    # Prefer executable dir when frozen (PyInstaller), else script dir
+    try:
+        if getattr(sys, 'frozen', False):
+            base = os.path.dirname(sys.executable)
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+    except Exception:
+        base = os.path.dirname(os.path.abspath(__file__))
+    default_dir = os.path.join(base, 'plugins')
+    env_dirs = os.environ.get('HUNGER_BENS_PLUGIN_DIRS', '')
+    paths = [p for p in env_dirs.split(os.pathsep) if p] or [default_dir]
+    return [p for p in paths if os.path.isdir(p)]
+
+def load_windows_plugins(log_fn: Optional[Callable[[str], None]] = None):
+    global _PLUGINS_LOADED
+    if _PLUGINS_LOADED:
+        return
+    if os.name != 'nt':
+        return
+    plugin_dirs = _iter_plugin_paths()
+    if not plugin_dirs:
+        _PLUGINS_LOADED = True
+        return
+    loaded_any = False
+    for d in plugin_dirs:
+        try:
+            for fname in os.listdir(d):
+                if not fname.endswith('.py') or fname == '__init__.py':
+                    continue
+                fpath = os.path.join(d, fname)
+                mod_name = f"hb_plugin_{os.path.splitext(fname)[0]}"
+                try:
+                    spec = importlib.util.spec_from_file_location(mod_name, fpath)
+                    if not spec or not spec.loader:
+                        continue
+                    mod = importlib.util.module_from_spec(spec)
+                    sys.modules[mod_name] = mod
+                    spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+                    loaded_any = True
+                    _log_plugin(f"[Plugins] Loaded {fname}", log_fn)
+                    # Content
+                    if hasattr(mod, 'get_custom_content'):
+                        try:
+                            cc = mod.get_custom_content()  # type: ignore[attr-defined]
+                            if isinstance(cc, dict) and cc:
+                                integrate_custom_content(cc)
+                                _log_plugin(f"[Plugins] Integrated custom content from {fname}", log_fn)
+                        except Exception as e:
+                            _log_plugin(f"[Plugins] get_custom_content error in {fname}: {e}", log_fn)
+                    # Events
+                    plugin_events: Dict[str, List[Callable]] = {}
+                    if hasattr(mod, 'get_events'):
+                        try:
+                            ev = mod.get_events()  # type: ignore[attr-defined]
+                            if isinstance(ev, dict):
+                                for k in ('day','night','global'):
+                                    arr = ev.get(k, [])
+                                    if isinstance(arr, list):
+                                        plugin_events[k] = [f for f in arr if callable(f)]
+                                    else:
+                                        plugin_events[k] = []
+                                if plugin_events.get('day'):
+                                    DAY_EVENTS.extend(plugin_events['day'])
+                                if plugin_events.get('night'):
+                                    NIGHT_EVENTS.extend(plugin_events['night'])
+                                if plugin_events.get('global'):
+                                    GLOBAL_EVENTS.extend(plugin_events['global'])
+                                _log_plugin(f"[Plugins] Registered events from {fname}", log_fn)
+                        except Exception as e:
+                            _log_plugin(f"[Plugins] get_events error in {fname}: {e}", log_fn)
+                    # Event weights
+                    if hasattr(mod, 'get_event_weights'):
+                        try:
+                            w = mod.get_event_weights()  # type: ignore[attr-defined]
+                            if isinstance(w, dict):
+                                for key, weight in w.items():
+                                    if not isinstance(weight, (int, float)):
+                                        continue
+                                    func = None
+                                    if callable(key):
+                                        func = key
+                                    elif isinstance(key, str):
+                                        # Try to resolve by name among plugin events
+                                        for arr in (plugin_events.get('day', []), plugin_events.get('night', []), plugin_events.get('global', [])):
+                                            for f in arr:
+                                                if getattr(f, '__name__', '') == key:
+                                                    func = f
+                                                    break
+                                            if func:
+                                                break
+                                    if func:
+                                        BASE_EVENT_WEIGHTS[func] = float(weight)
+                                _log_plugin(f"[Plugins] Applied event weights from {fname}", log_fn)
+                        except Exception as e:
+                            _log_plugin(f"[Plugins] get_event_weights error in {fname}: {e}", log_fn)
+                except Exception as e:
+                    _log_plugin(f"[Plugins] Failed to load {fname}: {e}", log_fn)
+        except Exception as e:
+            _log_plugin(f"[Plugins] Directory error for {d}: {e}", log_fn)
+    _PLUGINS_LOADED = True
+    if loaded_any:
+        _log_plugin("[Plugins] Windows plugins loaded.", log_fn)
+
+# -----------------------------
 # Simulator
 # -----------------------------
 class HungerBensSimulator:
@@ -1131,8 +1255,20 @@ def run_simulation(
     roster: Optional[Dict[str, Dict[str, Any]]] = None,
     strict_shutdown: Optional[int] = None,
     log_callback: Optional[Callable[[str], None]] = None,
+    enable_plugins: Optional[bool] = None,
 ):
     tribute_source = roster if roster else dicty
+    # Windows-only plugin activation (enabled by default on Windows unless explicitly disabled)
+    try:
+        if enable_plugins is None:
+            enable = (os.name == 'nt')
+        else:
+            enable = bool(enable_plugins) and (os.name == 'nt')
+        if enable:
+            load_windows_plugins(log_callback)
+    except Exception:
+        # Never fail simulation due to plugins
+        pass
     sim = HungerBensSimulator(
         tribute_source,
         seed=seed,
@@ -1156,6 +1292,7 @@ if os.name == 'nt':
             self._build_widgets()
             self.current_sim: Optional[HungerBensSimulator] = None
             self.roster_override: Optional[Dict[str, Dict[str, Any]]] = None
+            self.plugins_var = tkinter.BooleanVar(value=True)
 
         def _build_widgets(self):
             frm = ttk.Frame(self.root, padding=10)
@@ -1202,9 +1339,12 @@ if os.name == 'nt':
             self.inline_content_entry.grid(row=5, column=1, columnspan=2, sticky='we')
             ttk.Button(frm, text="Apply", command=self._apply_inline_content).grid(row=5, column=3, sticky='w')
 
+            # Plugins (Windows only)
+            ttk.Checkbutton(frm, text="Enable Plugins (Windows)", variable=self.plugins_var).grid(row=6, column=0, columnspan=2, sticky='w')
+
             # Run controls
             btn_frame = ttk.Frame(frm)
-            btn_frame.grid(row=6, column=0, columnspan=4, pady=(8,4), sticky='we')
+            btn_frame.grid(row=7, column=0, columnspan=4, pady=(8,4), sticky='we')
             ttk.Button(btn_frame, text="Run Simulation", command=self._run).grid(row=0, column=0, padx=4)
             ttk.Button(btn_frame, text="Clear Output", command=self._clear_output).grid(row=0, column=1, padx=4)
             ttk.Button(btn_frame, text="Quit", command=self.root.quit).grid(row=0, column=2, padx=4)
@@ -1295,6 +1435,7 @@ if os.name == 'nt':
                     roster=self.roster_override,
                     strict_shutdown=strict,
                     log_callback=self._append_log,
+                    enable_plugins=self.plugins_var.get(),
                 )
                 self._append_log("Simulation complete.")
             except Exception as e:
@@ -1368,6 +1509,8 @@ def parse_args():
     parser.add_argument("--no-clear", action="store_true", help="Disable clearing the screen before interactive simulation output")
     if os.name == 'nt':
         parser.add_argument("--gui", action="store_true", help="Launch Tkinter GUI (Windows only)")
+        parser.add_argument("--no-plugins", action="store_true", help="Disable Windows plugin loader")
+        parser.add_argument("--plugin-dir", type=str, help="Directory for Windows plugins (overrides default)")
     return parser.parse_args()
 
 def cli_entry():
@@ -1408,6 +1551,10 @@ def cli_entry():
     if args.interactive:
         mainloop(roster_override=roster_data, clear_screen=not args.no_clear)
     else:
+        # Configure plugin dirs if provided (Windows only)
+        if os.name == 'nt':
+            if getattr(args, 'plugin_dir', None):
+                os.environ['HUNGER_BENS_PLUGIN_DIRS'] = args.plugin_dir
         run_simulation(
             seed=args.seed,
             max_days=args.max_days,
@@ -1415,6 +1562,7 @@ def cli_entry():
             export_log=args.export_log,
             roster=roster_data,
             strict_shutdown=args.strict_shutdown,
+            enable_plugins=(None if os.name != 'nt' else (False if getattr(args, 'no_plugins', False) else True)),
         )
 
 if __name__ == "__main__":

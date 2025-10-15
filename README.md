@@ -117,3 +117,27 @@ Tip: Keep events fast and side-effect minimal beyond modifying tribute propertie
 
 - [Sun Valley](https://github.com/rdbende/Sun-Valley-ttk-theme): Windows gui theme
 - [Pyodide](https://pyodide.org/): Used for GitHub Pages functionality
+
+## Packaging (Windows)
+
+This repo includes a PyInstaller spec and an Inno Setup script to build a Windows executable and installer.
+
+1) Build the app (PowerShell)
+
+	- Create a venv, install dependencies, and run PyInstaller:
+	- scripts/build.ps1 will produce dist/HungerBens with HungerBens.exe
+
+	Example:
+	```powershell
+	Set-ExecutionPolicy -Scope Process Bypass; ./scripts/build.ps1
+	```
+
+2) Create installer (optional)
+
+	- Install Inno Setup
+	- Open installer/HungerBens.iss in Inno Setup Compiler and build
+
+Notes
+
+- Plugins: place .py files in docs/plugins before packaging; the build script copies them into dist/HungerBens/plugins. The Windows-only plugin loader will search next to the executable by default.
+- Web assets (docs/index.html, docs/favicon.svg) are bundled via pyinstaller.spec and placed under dist/HungerBens/docs.
