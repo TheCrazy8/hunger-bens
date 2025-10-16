@@ -19,6 +19,9 @@
   button:hover { background:#555; }
   select { background:#1b1b1b; color:#eee; border:1px solid #333; border-radius:4px; padding:.45rem .5rem; }
   #log { background:#000; min-height:280px; white-space:pre-wrap; padding:.75rem; border:1px solid #333; font-family:monospace; overflow-y:auto; }
+  #log .hdr { font-weight:700; }
+  #log .bold { font-weight:700; }
+  #log .italic { font-style:italic; }
   .row { display:flex; gap:1rem; flex-wrap:wrap; }
   .grow { flex:1; min-width:220px; }
   footer { text-align:center; font-size:.7rem; padding:1rem 0 2rem; color:#888; }
@@ -203,7 +206,25 @@ let lastRunData = null;
 let simulatorReady = false;
 
 function appendLog(line){
-  logEl.textContent += line + '\n';
+  const div = document.createElement('div');
+  const text = String(line ?? '');
+  const isHeader = /^\s*(?:#{1,6}\s|--- |\*\*\* |=+ |VICTOR:|Final standings:|Fallen|=== Statistics)/.test(text);
+  if(isHeader) div.classList.add('hdr');
+  // Inline **bold** and _italic_
+  const parts = [];
+  let i = 0;
+  const pushText = (t, cls) => { const s = document.createElement('span'); s.textContent = t; if(cls) s.className = cls; parts.push(s); };
+  const regex = /(\*\*([^*]+)\*\*)|(_([^_]+)_)/g;
+  let m;
+  while((m = regex.exec(text))){
+    if(m.index > i) pushText(text.slice(i, m.index));
+    if(m[2]) pushText(m[2], 'bold'); else if(m[4]) pushText(m[4], 'italic');
+    i = m.index + m[0].length;
+  }
+  if(i < text.length) pushText(text.slice(i));
+  if(parts.length === 0) pushText(text);
+  parts.forEach(el => div.appendChild(el));
+  logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
 
@@ -561,6 +582,10 @@ try:
         'status': list(getattr(t,'status', []) or []),
         'inventory': list(getattr(t,'inventory', []) or []),
         'cause_of_death': getattr(t,'cause_of_death', None),
+        'hunger': int(getattr(t,'hunger', 0) or 0),
+        'stamina': int(getattr(t,'stamina', 0) or 0),
+        'traits': list(getattr(t,'traits', []) or []),
+        'region': getattr(t,'region', None),
       }
     tributes_out.append(_sanitize(td))
 except Exception as e:
@@ -604,6 +629,17 @@ result = {
     } else if(typeof result.log === 'string') {
       appendLog(result.log);
     }
+    // Compact summary for web parity
+    try {
+      const tribs = Array.isArray(result.tributes) ? result.tributes : [];
+      appendLog('');
+      appendLog('=== Summary (Vitals & Traits) ===');
+      tribs.forEach(t => {
+        const alive = t.alive ? 'Alive' : `Fallen${t.cause_of_death ? ' ('+t.cause_of_death+')' : ''}`;
+        const traits = (t.traits && t.traits.length) ? ` Traits: ${t.traits.join(', ')}` : '';
+        appendLog(` - ${t.name} [D${t.district}] ${alive} | H:${t.hunger} S:${t.stamina} Reg:${t.region}.${traits}`);
+      });
+    } catch {}
     downloadBtn.disabled = false;
   } catch(e){
     appendLog('Runtime error: ' + e);

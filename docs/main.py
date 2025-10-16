@@ -1,4 +1,5 @@
 import random
+import re
 import json
 import sys
 import argparse
@@ -1876,25 +1877,44 @@ if os.name == 'nt':
                 messagebox.showerror("Content Error", f"Failed to integrate content: {e}")
 
         def _append_log(self, line: str):
-            # Apply very light markdown-like styling: lines starting with '---', '***', '===', or headings
+            # Markdown-like rendering: headers (# ...), section lines (---/***/===), bold (**...**), italics (_..._), list bullets
             try:
-                if self.styled_var.get():
-                    tag = None
-                    text = line
-                    if text.startswith(("--- ", "*** ", "=== ", "VICTOR:", "Final standings:", "Fallen", "=== Statistics")):
-                        tag = 'header'
-                    # Bold list bullets like ' - '
-                    if text.strip().startswith('- '):
-                        tag = 'bold'
-                    if tag:
-                        self.output.insert('end', text + '\n', tag)
-                    else:
-                        self.output.insert('end', text + '\n')
-                else:
+                if not self.styled_var.get():
                     self.output.insert('end', line + '\n')
+                    self.output.see('end')
+                    return
+                text = line
+                is_header = False
+                if text.startswith(('# ', '## ', '### ', '#### ', '##### ', '###### ')):
+                    is_header = True
+                if text.startswith(("--- ", "*** ", "=== ", "VICTOR:", "Final standings:", "Fallen", "=== Statistics")):
+                    is_header = True
+                start_index = self.output.index('end-1c')
+                if is_header:
+                    self.output.insert('end', text + '\n', 'header')
+                else:
+                    # Insert raw, then apply inline tags
+                    self.output.insert('end', text + '\n')
+                    try:
+                        # Bold **...**
+                        for m in re.finditer(r"\*\*(.+?)\*\*", text):
+                            a, b = m.span(1)
+                            self.output.tag_add('bold', f"{start_index}+{a}c", f"{start_index}+{b}c")
+                        # Italic _..._
+                        for m in re.finditer(r"_(.+?)_", text):
+                            a, b = m.span(1)
+                            self.output.tag_add('italic', f"{start_index}+{a}c", f"{start_index}+{b}c")
+                        # List bullets: make the leading ' - ' bold
+                        if text.strip().startswith('- '):
+                            # bold first token till space after dash
+                            leading = text.index('- ')
+                            self.output.tag_add('bold', f"{start_index}+{leading}c", f"{start_index}+{leading+2}c")
+                    except Exception:
+                        pass
+                self.output.see('end')
             except Exception:
                 self.output.insert('end', line + '\n')
-            self.output.see('end')
+                self.output.see('end')
 
         def _clear_output(self):
             self.output.delete('1.0', 'end')
