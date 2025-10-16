@@ -3061,7 +3061,7 @@ if __name__ == "__main__":
                     sv_ttk.set_theme("dark")
                 except Exception:
                     pass
-                    messagebox.ERROR("Theme Error", "Failed to set Sunset Valley theme; using default.")
+                    messagebox.showerror("Theme Error", "Failed to set Sunset Valley theme; using default.")
                 root.mainloop()
             except Exception:
                 # If GUI fails, fall back to CLI without interactive prompts
