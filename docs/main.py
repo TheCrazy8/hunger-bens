@@ -146,23 +146,35 @@ BIOMES_DEF: Dict[str, Dict[str, Any]] = {
 # Region layout in a grid (col,row) for map drawing; names double as Tribute.region values
 MAP_REGIONS: Dict[str, Dict[str, Any]] = {
     # Row 0
-    "NW Forest":        {"grid": (0,0), "biome": "Forest",   "features": ["tall pines","forage spots"]},
-    "North Ridge":      {"grid": (1,0), "biome": "Mountain", "features": ["cliffs","thin air"]},
-    "North Dunes":      {"grid": (2,0), "biome": "Desert",   "features": ["dunes","mirages"]},
-    "NE Tundra":        {"grid": (3,0), "biome": "Tundra",   "features": ["permafrost","hail"]},
+    "NW Pines":           {"grid": (0,0), "biome": "Forest",   "features": ["tall pines","forage spots"]},
+    "North Ridge":        {"grid": (1,0), "biome": "Mountain", "features": ["cliffs","thin air"]},
+    "North Dunes":        {"grid": (2,0), "biome": "Desert",   "features": ["dunes","mirages"]},
+    "Frozen Plateau":     {"grid": (3,0), "biome": "Tundra",   "features": ["permafrost","hail"]},
+    "NE Glacier":         {"grid": (4,0), "biome": "Tundra",   "features": ["crevasses","whiteout"]},
     # Row 1
-    "West Swamp":       {"grid": (0,1), "biome": "Swamp",    "features": ["bogs","mosquitoes"]},
-    "Center":           {"grid": (1,1), "biome": "Plains",   "features": ["Cornucopia","open fields"]},
-    "East Ruins":       {"grid": (2,1), "biome": "Ruins",    "features": ["crumbling walls","drone beacons"]},
-    "Far East Lake":    {"grid": (3,1), "biome": "Lake",     "features": ["shoreline","islets"]},
+    "West Swamp":         {"grid": (0,1), "biome": "Swamp",    "features": ["bogs","mosquitoes"]},
+    "West Woods":         {"grid": (1,1), "biome": "Forest",   "features": ["dense underbrush"]},
+    "North Plains":       {"grid": (2,1), "biome": "Plains",   "features": ["open wind","cover dips"]},
+    "East Ruins":         {"grid": (3,1), "biome": "Ruins",    "features": ["crumbling walls","drone beacons"]},
+    "Far East Lake":      {"grid": (4,1), "biome": "Lake",     "features": ["shoreline","islets"]},
     # Row 2
-    "West Woods":       {"grid": (0,2), "biome": "Forest",   "features": ["dense underbrush"]},
-    "South Plains":     {"grid": (1,2), "biome": "Plains",   "features": ["tall grass","cover dips"]},
-    "South Marsh":      {"grid": (2,2), "biome": "Swamp",    "features": ["mire","strangler vines"]},
-    "SE Volcano":       {"grid": (3,2), "biome": "Volcano",  "features": ["vents","ashfall"]},
+    "Winding Bog":        {"grid": (0,2), "biome": "Swamp",    "features": ["mire","strangler vines"]},
+    "Southwest Plains":   {"grid": (1,2), "biome": "Plains",   "features": ["tall grass","burrows"]},
+    "Center":             {"grid": (2,2), "biome": "Plains",   "features": ["Cornucopia","open fields"]},
+    "Ash Fields":         {"grid": (3,2), "biome": "Volcano",  "features": ["ashfall","vents"]},
+    "River Delta":        {"grid": (4,2), "biome": "Lake",     "features": ["shallows","reeds"]},
     # Row 3
-    "Southwest Desert": {"grid": (0,3), "biome": "Desert",   "features": ["salt flats","dust devils"]},
-    "South Ridge":      {"grid": (1,3), "biome": "Mountain", "features": ["scree","caves"]},
+    "Southwest Desert":   {"grid": (0,3), "biome": "Desert",   "features": ["salt flats","dust devils"]},
+    "South Ridge":        {"grid": (1,3), "biome": "Mountain", "features": ["scree","caves"]},
+    "South Marsh":        {"grid": (2,3), "biome": "Swamp",    "features": ["suckholes","gnats"]},
+    "SE Volcano":         {"grid": (3,3), "biome": "Volcano",  "features": ["lava tubes","heat shimmer"]},
+    "Crystal Flats":      {"grid": (4,3), "biome": "Plains",   "features": ["glittering crust","open sightlines"]},
+    # Row 4
+    "Western Cliffs":     {"grid": (0,4), "biome": "Mountain", "features": ["sheer drops","goat paths"]},
+    "Amber Savannah":     {"grid": (1,4), "biome": "Plains",   "features": ["amber grass","stray herds"]},
+    "Sunken Gardens":     {"grid": (2,4), "biome": "Swamp",    "features": ["sunken ruins","humid haze"]},
+    "Mirror Lake":        {"grid": (3,4), "biome": "Lake",     "features": ["glass calm","islands"]},
+    "SE Reaches":         {"grid": (4,4), "biome": "Desert",   "features": ["sere dunes","mirage pools"]},
 }
 
 # Public region names used throughout the simulator
@@ -1998,8 +2010,10 @@ if os.name == 'nt':
             c.delete('all')
             w = int(c['width'])
             h = int(c['height'])
-            # 4x4 grid layout driven by MAP_REGIONS positions
-            cols, rows = 4, 4
+            # Dynamic grid layout driven by MAP_REGIONS positions (now 5x5)
+            max_x = max((info.get('grid', (0,0))[0] for info in MAP_REGIONS.values()), default=0)
+            max_y = max((info.get('grid', (0,0))[1] for info in MAP_REGIONS.values()), default=0)
+            cols, rows = max_x + 1, max_y + 1
             cell_w = w // cols
             cell_h = h // rows
             # Helper to draw a region rectangle and label w/ biome tint
