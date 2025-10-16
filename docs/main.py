@@ -1983,8 +1983,11 @@ if os.name == 'nt':
             panel.grid(row=0, column=1, rowspan=3, sticky='ns')
             ttk.Label(panel, text="Arena Map", font=(None, 12, 'bold')).pack(anchor='n')
             # Canvas for map
-            self.map_canvas = tkinter.Canvas(panel, width=360, height=480, background="#111")
+            # Slightly wider canvas so 5x5 labels have more room
+            self.map_canvas = tkinter.Canvas(panel, width=420, height=480, background="#111")
             self.map_canvas.pack(anchor='n', pady=(6, 6))
+            # Reserve header height inside each region cell for wrapped labels
+            self._region_header_h = 32
             # Tooltip label (hidden by default)
             self._tooltip = tkinter.Label(panel, text='', background='#222', foreground='#fff', relief='solid', borderwidth=1, padx=4, pady=2)
             self._tooltip.place_forget()
@@ -2026,7 +2029,18 @@ if os.name == 'nt':
                 x1 = (rx + 1) * cell_w - 6
                 y1 = (ry + 1) * cell_h - 6
                 c.create_rectangle(x0, y0, x1, y1, outline="#555", fill=fill)
-                c.create_text((x0 + x1)//2, y0 + 14, text=f"{name}", fill="#ddd", font=(None, 9, 'bold'))
+                # Wrap the region name inside the cell so it doesn't overflow
+                label_width = max(20, (x1 - x0) - 10)
+                c.create_text(
+                    (x0 + x1)//2,
+                    y0 + 6,
+                    text=f"{name}",
+                    fill="#ddd",
+                    font=(None, 8, 'bold'),
+                    anchor='n',
+                    width=label_width,
+                    justify='center'
+                )
                 self._region_boxes[name] = (x0, y0, x1, y1)
             # Draw all map regions
             self._region_boxes.clear()
@@ -2052,7 +2066,9 @@ if os.name == 'nt':
                 box = self._region_boxes.get('Center', (10, 10, 100, 100))
             x0, y0, x1, y1 = box
             pad = 10
-            x0p, y0p, x1p, y1p = x0 + pad, y0 + 24, x1 - pad, y1 - pad
+            # Keep markers below the label area (header height)
+            header_h = getattr(self, '_region_header_h', 32)
+            x0p, y0p, x1p, y1p = x0 + pad, y0 + header_h, x1 - pad, y1 - pad
             rng = random.Random(self._hash_seed(f"{key}|{region}"))
             x = int(rng.uniform(x0p, x1p))
             y = int(rng.uniform(y0p, y1p))
