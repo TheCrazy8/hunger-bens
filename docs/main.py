@@ -1972,6 +1972,7 @@ def run_simulation(
             load_windows_plugins(log_callback)
     except Exception:
         # Never fail simulation due to plugins
+        messagebox.showerror("Plugin Error", "An error occurred while loading plugins. Continuing without plugins.")
         pass
     sim = HungerBensSimulator(
         tribute_source,
