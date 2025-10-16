@@ -1538,8 +1538,13 @@ def run_simulation(
     strict_shutdown: Optional[int] = None,
     log_callback: Optional[Callable[[str], None]] = None,
     enable_plugins: Optional[bool] = None,
+    # Back-compat alias used by older web UI (docs/index.html)
+    strict_shutdown_day: Optional[int] = None,
 ):
     tribute_source = roster if roster else dicty
+    # Prefer explicit strict_shutdown; fall back to alias if provided
+    if strict_shutdown is None and strict_shutdown_day is not None:
+        strict_shutdown = strict_shutdown_day
     # Windows-only plugin activation (default comes from config unless explicitly overridden)
     try:
         if enable_plugins is None:
