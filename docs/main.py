@@ -522,7 +522,7 @@ def event_small_skirmish(tributes: List[Tribute], rng: random.Random, sim) -> Li
         winner.adjust_stamina(-15)
         loser.adjust_stamina(-10)
         winner.adjust_morale(-1)
-        loser.adjust_morale(+1)
+        loser.adjust_morale(+0)
         return [f"{winner.name} {verb} {loser.name}, but fails to finish them off. Both look shaken."]
 
 def event_trap_failure(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
