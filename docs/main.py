@@ -81,7 +81,7 @@ except Exception:
 # -----------------------------
 # Base Tribute Data (can be replaced/extended by JSON roster)
 # -----------------------------
-dicty: Dict[str, Dict[str, Any]] = {
+tributedict: Dict[str, Dict[str, Any]] = {
     
 }
 
@@ -1821,7 +1821,7 @@ def run_simulation(
     # Back-compat alias used by older web UI (docs/index.html)
     strict_shutdown_day: Optional[int] = None,
 ):
-    tribute_source = roster if roster else dicty
+    tribute_source = roster if roster else tributedict
     # Prefer explicit strict_shutdown; fall back to alias if provided
     if strict_shutdown is None and strict_shutdown_day is not None:
         strict_shutdown = strict_shutdown_day
@@ -2321,7 +2321,7 @@ if os.name == 'nt':
             self._append_log("Launching simulation...")
             try:
                 # Build simulator directly so we can live-update map using self.current_sim
-                tribute_source = self.roster_override if self.roster_override else dicty
+                tribute_source = self.roster_override if self.roster_override else tributedict
                 # Optional plugin loading (Windows only)
                 try:
                     if self.plugins_var.get():
@@ -2781,7 +2781,7 @@ def mainloop(roster_override=None, clear_screen: bool = True):
     strict = input("Enter strict shutdown day (optional, blank=none): ").strip()
     strict = int(strict) if strict.isdigit() else None
     verb = input("Verbose output? (y/n, default y): ").lower() != 'n'
-    working_dicty = dict(dicty) if roster_override is None else dict(roster_override)
+    working_dicty = dict(tributedict) if roster_override is None else dict(roster_override)
     if input("Add custom tributes? (y/n): ").lower() == 'y':
         addnomen(working_dicty)
     # Inline custom content JSON (no file required)
