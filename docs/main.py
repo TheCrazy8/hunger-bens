@@ -205,6 +205,11 @@ HAZARD_EFFECTS = {
 }
 
 # -----------------------------
+# Map Regions (simple)
+# -----------------------------
+REGIONS = ["North", "South", "East", "West", "Center"]
+
+# -----------------------------
 # Utility helpers
 # -----------------------------
 def _a_or_an(item: str) -> str:
@@ -246,8 +251,18 @@ def add_status_variant(t: "Tribute", base_tag: str, rng: random.Random):
     t.add_status(choice)
 
 # -----------------------------
-# Data Models
+# Traits & Data Models
 # -----------------------------
+# Lightweight trait system; traits add small bonuses in some events.
+TRAIT_POOL: List[str] = [
+    "agile",      # better at avoiding hazards and traps
+    "strong",     # edge in direct skirmishes
+    "stealthy",   # edge in sneak attacks
+    "medic",      # improved self-heal
+    "lucky",      # slightly better odds against global hazards
+    "clumsy",     # worse at traps and stealth
+]
+
 @dataclass
 class Tribute:
     key: str
@@ -262,11 +277,20 @@ class Tribute:
     morale: int = 5
     notoriety: int = 0
     cause_of_death: Optional[str] = None
+    # New survival fields
+    hunger: int = 70                 # 0-100, lower is worse
+    stamina: int = 100               # 0-100
+    traits: List[str] = field(default_factory=list)
+    region: str = "Center"
 
     def __str__(self):
         status_bits = f" [{','.join(self.status)}]" if self.status else ""
         status = "Alive" if self.alive else f"Fallen ({self.cause_of_death or 'unknown'})"
-        return f"{self.name} (D{self.district}, {status}, Kills:{self.kills}, Morale:{self.morale}, Notoriety:{self.notoriety}{status_bits})"
+        # Compact summary includes current region and core vitals
+        return (
+            f"{self.name} (D{self.district}, {status}, Kills:{self.kills}, "
+            f"Morale:{self.morale}, Notoriety:{self.notoriety}, H:{self.hunger}, S:{self.stamina}, Reg:{self.region}{status_bits})"
+        )
 
     def adjust_morale(self, delta: int):
         self.morale = max(0, min(10, self.morale + delta))
@@ -278,6 +302,12 @@ class Tribute:
     def remove_status(self, tag: str):
         if tag in self.status:
             self.status.remove(tag)
+
+    def adjust_hunger(self, delta: int):
+        self.hunger = max(0, min(100, self.hunger + delta))
+
+    def adjust_stamina(self, delta: int):
+        self.stamina = max(0, min(100, self.stamina + delta))
 
 # -----------------------------
 # Alliance tracking
@@ -366,6 +396,16 @@ def event_small_skirmish(tributes: List[Tribute], rng: random.Random, sim) -> Li
         return [f"{a.name} and {b.name} square up but recall their alliance and back off."]
     # Morale modifies success
     prob_a = 0.5 + (a.morale - b.morale) * 0.04
+    # Trait modifiers
+    if 'strong' in a.traits:
+        prob_a += 0.05
+    if 'strong' in b.traits:
+        prob_a -= 0.05
+    # Exhaustion or low stamina reduces odds
+    if a.stamina < 30:
+        prob_a -= 0.05
+    if b.stamina < 30:
+        prob_a += 0.05
     prob_a = max(0.1, min(0.9, prob_a))
     winner, loser = (a, b) if rng.random() < prob_a else (b, a)
     usable = [it for it in winner.inventory if it in WEAPONS]
@@ -376,12 +416,19 @@ def event_small_skirmish(tributes: List[Tribute], rng: random.Random, sim) -> Li
     winner.notoriety += 1 + (1 if weapon in WEAPONS else 0)
     winner.adjust_morale(+1)
     with_part = f" with {_a_or_an(weapon)}" if weapon not in ["fists"] else ""
+    # Spend some stamina in a skirmish; winner less
+    winner.adjust_stamina(-10)
+    loser.adjust_stamina(-20)
     return [f"{winner.name} {verb} {loser.name}{with_part}. {loser.name} is eliminated."]
 
 def event_trap_failure(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
     t = rng.choice(tributes)
     base = 0.18
     base -= (t.morale - 5) * 0.01  # morale reduces failure
+    if 'clumsy' in t.traits:
+        base += 0.05
+    if 'agile' in t.traits:
+        base -= 0.03
     if rng.random() < base:
         _kill(t, "botched trap")
         return [f"{t.name} tinkers with an over‑complicated trap; a spring snaps and ends their run."]
@@ -403,6 +450,10 @@ def event_environment(tributes: List[Tribute], rng: random.Random, sim) -> List[
     hazard = rng.choice(HAZARDS)
     effect = HAZARD_EFFECTS[hazard]
     chance = 0.28 - (t.morale - 5) * 0.015
+    if 'agile' in t.traits:
+        chance -= 0.03
+    if 'lucky' in t.traits:
+        chance -= 0.02
     if rng.random() < chance:
         _kill(t, f"{effect} by {hazard}")
         return [f"{t.name} is {effect} by {hazard}."]
@@ -420,6 +471,11 @@ def event_heal(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
             t.remove_status("wounded")
         t.adjust_morale(+2)
         return [f"{t.name} uses {use} to patch up and looks revitalized."]
+    # Medic trait sometimes helps without items
+    if 'medic' in t.traits and 'wounded' in t.status and rng.random() < 0.5:
+        t.remove_status('wounded')
+        t.adjust_morale(+1)
+        return [f"{t.name} improvises medical care and stabilizes their wounds."]
     return [f"{t.name} improvises medical care with leaves. It doesn't help."]
 
 def event_supply_drop(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
@@ -501,17 +557,27 @@ def event_sneak_attack(tributes: List[Tribute], rng: random.Random, sim) -> List
     usable = [w for w in attacker.inventory if w in WEAPONS]
     weapon = rng.choice(usable) if usable else None
     base = 0.48 + (attacker.morale - 5) * 0.04
+    if 'stealthy' in attacker.traits:
+        base += 0.05
+    if 'agile' in attacker.traits:
+        base += 0.02
+    if victim.stamina < 30:
+        base += 0.03
+    if attacker.stamina < 30:
+        base -= 0.04
     base = max(0.2, min(0.85, base))
     if rng.random() < base:
         _kill(victim, f"ambushed by {attacker.name}")
         attacker.kills += 1
         attacker.notoriety += 2
         attacker.adjust_morale(+2)
+        attacker.adjust_stamina(-15)
         if weapon:
             verb = WEAPON_VERBS.get(weapon, "eliminates")
             return [f"{attacker.name} ambushes {victim.name} with {_a_or_an(weapon)} and {verb} them. {victim.name} falls."]
         return [f"{attacker.name} executes a bare-handed ambush on {victim.name}. {victim.name} is eliminated."]
     attacker.adjust_morale(-1)
+    attacker.adjust_stamina(-8)
     return [f"{attacker.name}'s ambush on {victim.name} fails; {attacker.name} retreats."]
 
 def event_dance_off(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
@@ -659,12 +725,37 @@ def global_safe_zone_shrink(all_tributes: List[Tribute], rng: random.Random, sim
     lines = ["Loud klaxons blare: the safe zone contracts sharply toward the Cornucopia."]
     threatened = [t for t in all_tributes if t.alive and rng.random() < 0.25]
     for t in threatened:
-        if rng.random() < 0.40 - (t.morale - 5)*0.02:
+        death_chance = 0.40 - (t.morale - 5)*0.02
+        if 'lucky' in t.traits:
+            death_chance -= 0.03
+        if rng.random() < death_chance:
             _kill(t, "caught outside perimeter")
             lines.append(f"{t.name} is caught outside the new perimeter and collapses.")
         else:
             t.adjust_morale(-1)
             lines.append(f"{t.name} barely sprints inside the perimeter, shaken.")
+    return lines
+
+def global_region_collapse(all_tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
+    # Pick a non-center region to collapse; survivors flee to Center
+    collapsing = rng.choice([r for r in REGIONS if r != 'Center'])
+    lines = [f"A siren howls: the {collapsing} region becomes a kill zone!"]
+    for t in list(all_tributes):
+        if not t.alive:
+            continue
+        if t.region == collapsing:
+            chance = 0.45 - (t.morale - 5)*0.02
+            if 'agile' in t.traits:
+                chance -= 0.04
+            if 'lucky' in t.traits:
+                chance -= 0.03
+            if rng.random() < chance:
+                _kill(t, f"region collapse in {collapsing}")
+                lines.append(f"{t.name} is overwhelmed by the collapsing {collapsing} sector.")
+            else:
+                t.region = 'Center'
+                t.adjust_morale(-1)
+                lines.append(f"{t.name} escapes {collapsing} just in time and flees to Center.")
     return lines
 
 def global_supply_shortage(all_tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
@@ -683,6 +774,7 @@ GLOBAL_EVENTS: List[Callable[[List[Tribute], random.Random, "HungerBensSimulator
     global_weather_shift,
     global_safe_zone_shrink,
     global_supply_shortage,
+    global_region_collapse,
 ]
 
 # Event pools (call signatures now expect sim)
@@ -1116,6 +1208,25 @@ class HungerBensSimulator:
         }
         self.export_log_path = export_log
         self.death_log: List[Dict[str, Any]] = []
+        # Initialize traits and regions deterministically by seed
+        for t in self.tributes:
+            # Assign region
+            try:
+                t.region = self.rng.choice(REGIONS)
+            except Exception:
+                t.region = 'Center'
+            # Assign 0-2 traits
+            num = 0
+            r = self.rng.random()
+            if r < 0.55:
+                num = 1
+            if r < 0.20:
+                num = 2
+            if TRAIT_POOL and num > 0:
+                try:
+                    t.traits = self.rng.sample(TRAIT_POOL, k=num)
+                except Exception:
+                    t.traits = []
 
     # --- Basic helpers ---
     def alive_tributes(self) -> List[Tribute]:
@@ -1210,6 +1321,8 @@ class HungerBensSimulator:
     def _simulate_night(self):
         self._log(f"\n*** Night {self.day_count} ***")
         self._run_event_block(NIGHT_EVENTS, "night")
+        # Nightly survival tick: hunger/stamina and occasional movement
+        self._resource_tick()
 
     def _feast_event(self):
         self._log("\n=== The Feast is announced! ===")
@@ -1359,6 +1472,70 @@ class HungerBensSimulator:
             self._log(f"Reproducible with seed {self.seed}")
         else:
             self._log("A random seed was used (not provided).")
+
+    # --- Survival mechanics ---
+    def _resource_tick(self):
+        """Apply nightly hunger/stamina changes, consume supplies, and random movement."""
+        alive = self.alive_tributes()
+        for t in alive:
+            # Natural recovery and decay
+            t.adjust_hunger(-self.rng.randint(6, 11))
+            t.adjust_stamina(+10)
+            # Sleeping bag helps
+            if 'sleeping bag' in t.inventory:
+                t.adjust_stamina(+10)
+            # Consume food/water if low hunger or stamina
+            ate = None
+            drank = None
+            if t.hunger < 60:
+                for food in ["protein bar", "berries", "egg"]:
+                    if food in t.inventory:
+                        t.inventory.remove(food)
+                        t.adjust_hunger(+25 if food == 'protein bar' else +18)
+                        t.adjust_morale(+1)
+                        ate = food
+                        break
+            if t.stamina < 70:
+                for drink in ["energy drink", "water pouch"]:
+                    if drink in t.inventory:
+                        t.inventory.remove(drink)
+                        t.adjust_stamina(+20 if drink == 'energy drink' else +12)
+                        t.adjust_hunger(+5 if drink == 'energy drink' else +2)
+                        drank = drink
+                        break
+            # Status updates
+            if t.hunger < 30 and 'hungry' not in t.status:
+                t.add_status('hungry')
+            if t.hunger >= 30 and 'hungry' in t.status:
+                t.remove_status('hungry')
+            if t.hunger <= 0 and 'starving' not in t.status:
+                t.add_status('starving')
+            if t.hunger > 0 and 'starving' in t.status:
+                t.remove_status('starving')
+            # Starvation risk
+            if t.hunger <= 0:
+                risk = 0.15
+                if 'lucky' in t.traits:
+                    risk -= 0.04
+                if self.rng.random() < risk:
+                    _kill(t, 'starvation')
+                    self._log(f"{t.name} succumbs to starvation during the long night.")
+                    self.death_log.append({"name": t.name, "cause": t.cause_of_death, "day": self.day_count, "phase": "night"})
+                    continue
+            # Random movement across regions
+            if self.rng.random() < 0.30:
+                old = t.region
+                t.region = self.rng.choice(REGIONS)
+                if t.region != old:
+                    self._log(f"{t.name} relocates from {old} to {t.region} under cover of darkness.")
+            # Log consumption
+            if ate or drank:
+                parts = []
+                if ate:
+                    parts.append(f"eats {ate}")
+                if drank:
+                    parts.append(f"drinks {drank}")
+                self._log(f"{t.name} {' and '.join(parts)} and feels a bit better.")
 
     def _log_intro(self):
         self._log("Welcome to the Hunger Bens Simulation (Enhanced Edition)!")
@@ -1629,14 +1806,27 @@ if os.name == 'nt':
             btn_frame.grid(row=7, column=0, columnspan=4, pady=(8,4), sticky='we')
             ttk.Button(btn_frame, text="Run Simulation", command=self._run).grid(row=0, column=0, padx=4)
             ttk.Button(btn_frame, text="Clear Output", command=self._clear_output).grid(row=0, column=1, padx=4)
-            ttk.Button(btn_frame, text="Settings", command=self._open_settings).grid(row=0, column=2, padx=4)
-            ttk.Button(btn_frame, text="Quit", command=self.root.quit).grid(row=0, column=3, padx=4)
+            ttk.Button(btn_frame, text="Content Editor", command=self._open_content_editor).grid(row=0, column=2, padx=4)
+            ttk.Button(btn_frame, text="Settings", command=self._open_settings).grid(row=0, column=3, padx=4)
+            ttk.Button(btn_frame, text="Quit", command=self.root.quit).grid(row=0, column=4, padx=4)
 
             # Output area
             self.output = scrolledtext.ScrolledText(self.root, wrap='word', height=30)
             self.output.grid(row=1, column=0, sticky='nsew')
             self.root.rowconfigure(1, weight=1)
             self.root.columnconfigure(0, weight=1)
+            # Styling tags for simple markdown-like emphasis
+            try:
+                self.output.tag_configure('header', font=(None, 11, 'bold'))
+                self.output.tag_configure('bold', font=(None, 10, 'bold'))
+                self.output.tag_configure('italic', font=(None, 10, 'italic'))
+            except Exception:
+                pass
+            # Toggle for styled output
+            self.styled_var = tkinter.BooleanVar(value=True)
+            style_row = ttk.Frame(self.root)
+            style_row.grid(row=2, column=0, sticky='we')
+            ttk.Checkbutton(style_row, text="Markdown-style output", variable=self.styled_var).pack(anchor='w', padx=10)
 
         def _browse_export(self):
             path = filedialog.asksaveasfilename(defaultextension='.json', filetypes=[('JSON','*.json')])
@@ -1686,7 +1876,24 @@ if os.name == 'nt':
                 messagebox.showerror("Content Error", f"Failed to integrate content: {e}")
 
         def _append_log(self, line: str):
-            self.output.insert('end', line + '\n')
+            # Apply very light markdown-like styling: lines starting with '---', '***', '===', or headings
+            try:
+                if self.styled_var.get():
+                    tag = None
+                    text = line
+                    if text.startswith(("--- ", "*** ", "=== ", "VICTOR:", "Final standings:", "Fallen", "=== Statistics")):
+                        tag = 'header'
+                    # Bold list bullets like ' - '
+                    if text.strip().startswith('- '):
+                        tag = 'bold'
+                    if tag:
+                        self.output.insert('end', text + '\n', tag)
+                    else:
+                        self.output.insert('end', text + '\n')
+                else:
+                    self.output.insert('end', line + '\n')
+            except Exception:
+                self.output.insert('end', line + '\n')
             self.output.see('end')
 
         def _clear_output(self):
@@ -1731,6 +1938,41 @@ if os.name == 'nt':
                 save_config(_CONFIG)
             except Exception:
                 pass
+
+        def _open_content_editor(self):
+            # Minimal modal JSON editor to add weapons/items/hazards
+            win = tkinter.Toplevel(self.root)
+            win.title("Content Editor")
+            win.geometry("560x420")
+            ttk.Label(win, text="Paste custom content JSON (weapons/items/hazards)").pack(anchor='w', padx=10, pady=(10,4))
+            txt = scrolledtext.ScrolledText(win, wrap='word', height=18)
+            txt.pack(fill='both', expand=True, padx=10)
+            # Prefill with a helpful template
+            template = {
+                "weapons": {"laser spoon": "zaps"},
+                "items": ["force field"],
+                "hazards": {"gravity well": "crushed"}
+            }
+            try:
+                txt.insert('1.0', json.dumps(template, indent=2))
+            except Exception:
+                pass
+            btns = ttk.Frame(win)
+            btns.pack(fill='x', pady=8)
+            def apply_and_close():
+                raw = txt.get('1.0', 'end').strip()
+                try:
+                    data = load_custom_content_from_string(raw)
+                    if not data:
+                        messagebox.showerror("Invalid JSON", "Could not parse JSON or wrong shape.")
+                        return
+                    integrate_custom_content(data)
+                    messagebox.showinfo("Applied", "Custom content integrated.")
+                    win.destroy()
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to apply content: {e}")
+            ttk.Button(btns, text="Apply", command=apply_and_close).pack(side='right', padx=10)
+            ttk.Button(btns, text="Close", command=win.destroy).pack(side='right')
 
         def _compute_plugin_paths(self):
             here = os.path.dirname(os.path.abspath(__file__))
