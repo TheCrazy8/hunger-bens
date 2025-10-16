@@ -279,7 +279,7 @@ class Tribute:
     notoriety: int = 0
     cause_of_death: Optional[str] = None
     # New survival fields
-    hunger: int = 70                 # 0-100, lower is worse
+    hunger: float = 70                 # 0-100, lower is worse
     stamina: int = 100               # 0-100
     traits: List[str] = field(default_factory=list)
     region: str = "Center"
@@ -1480,7 +1480,7 @@ class HungerBensSimulator:
         alive = self.alive_tributes()
         for t in alive:
             # Natural recovery and decay
-            t.adjust_hunger(-self.rng.randint(6, 11))
+            t.adjust_hunger(-0.1)
             t.adjust_stamina(+10)
             # Sleeping bag helps
             if 'sleeping bag' in t.inventory:
