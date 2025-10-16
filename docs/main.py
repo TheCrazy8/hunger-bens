@@ -482,7 +482,7 @@ def event_small_skirmish(tributes: List[Tribute], rng: random.Random, sim) -> Li
     valid_pairs = []
     if a != b and (a.region == b.region or b.region in get_adjacent_regions(a.region)):
         valid_pairs.append((a, b))
-    if not valid_pairs: return []
+    if not valid_pairs: return [f"{a.name} phsycically attacks {b.name}.  {b.name} is unnafected."]
     # Allies less likely to attack unless betrayal check triggers
     if sim.alliances.is_allied(a, b) and rng.random() < 0.75:
         return [f"{a.name} and {b.name} square up but recall their alliance and back off."]
@@ -503,15 +503,27 @@ def event_small_skirmish(tributes: List[Tribute], rng: random.Random, sim) -> Li
     usable = [it for it in winner.inventory if it in WEAPONS]
     weapon = rng.choice(usable) if usable else rng.choice(["fists", "rock", "stick"])
     verb = WEAPON_VERBS.get(weapon, "attacks")
-    _kill(loser, f"defeated by {winner.name} ({weapon})")
-    winner.kills += 1
-    winner.notoriety += 1 + (1 if weapon in WEAPONS else 0)
-    winner.adjust_morale(+1)
-    with_part = f" with {_a_or_an(weapon)}" if weapon not in ["fists"] else ""
-    # Spend some stamina in a skirmish; winner less
-    winner.adjust_stamina(-10)
-    loser.adjust_stamina(-20)
-    return [f"{winner.name} {verb} {loser.name}{with_part}. {loser.name} is eliminated."]
+    # The chance of a kill is random, but influenced by weapon lethality and winner's morale
+    kill_chance = 0.3 + (0.1 if weapon in ["sword", "axe", "spear", "bow"] else 0.0)
+    kill_chance += (winner.morale - 5) * 0.02
+    kill_chance = max(0.1, min(0.8, kill_chance))
+    kill = rng.random() < kill_chance
+    if kill:
+        _kill(loser, f"defeated by {winner.name} ({weapon})")
+        winner.kills += 1
+        winner.notoriety += 1 + (1 if weapon in WEAPONS else 0)
+        winner.adjust_morale(+1)
+        with_part = f" with {_a_or_an(weapon)}" if weapon not in ["fists"] else ""
+        # Spend some stamina in a skirmish; winner less
+        winner.adjust_stamina(-10)
+        loser.adjust_stamina(-20)
+        return [f"{winner.name} {verb} {loser.name}{with_part}. {loser.name} is eliminated."]
+    else:
+        winner.adjust_stamina(-15)
+        loser.adjust_stamina(-10)
+        winner.adjust_morale(-1)
+        loser.adjust_morale(+1)
+        return [f"{winner.name} {verb} {loser.name}, but fails to finish them off. Both look shaken."]
 
 def event_trap_failure(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
     t = rng.choice(tributes)
@@ -531,6 +543,9 @@ def event_trap_failure(tributes: List[Tribute], rng: random.Random, sim) -> List
 def event_alliance(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
     if len(tributes) < 2: return []
     a, b = rng.sample(tributes, 2)
+    # Make sure tributes are in same or bordering regions
+    if a.region != b.region and b.region not in get_adjacent_regions(a.region):
+        return []
     if sim.alliances.is_allied(a, b):
         return [f"{a.name} and {b.name} reaffirm their alliance over shared rations."]
     sim.alliances.form_alliance(a, b)
@@ -589,6 +604,9 @@ def event_supply_drop(tributes: List[Tribute], rng: random.Random, sim) -> List[
 def event_argument(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
     if len(tributes) < 2: return []
     a, b = rng.sample(tributes, 2)
+    # Make sure tributes are in same or bordering regions
+    if a.region != b.region and b.region not in get_adjacent_regions(a.region):
+        return []
     topic = rng.choice([
         "who invented fire first","proper egg-boiling duration","ethical glitter deployment",
         "ideal camouflage color","if morale is real or a construct"
@@ -648,6 +666,9 @@ def event_stealth_fail(tributes: List[Tribute], rng: random.Random, sim) -> List
 def event_sneak_attack(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
     if len(tributes) < 2: return []
     attacker, victim = rng.sample(tributes, 2)
+    # Make sure tributes are in same or bordering regions
+    if attacker.region != victim.region and victim.region not in get_adjacent_regions(attacker.region):
+        return []
     if sim.alliances.is_allied(attacker, victim) and rng.random() < 0.8:
         return [f"{attacker.name} considers ambushing ally {victim.name} but hesitates."]
     usable = [w for w in attacker.inventory if w in WEAPONS]
@@ -679,6 +700,9 @@ def event_sneak_attack(tributes: List[Tribute], rng: random.Random, sim) -> List
 def event_dance_off(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
     if len(tributes) < 2: return []
     a, b = rng.sample(tributes, 2)
+    # Make sure tributes are in same or bordering regions
+    if a.region != b.region and b.region not in get_adjacent_regions(a.region):
+        return []
     winner = rng.choice([a, b])
     loot = rng.choice(SUPPLY_ITEMS + list(WEAPONS))
     winner.inventory.append(loot)
@@ -834,7 +858,7 @@ def global_safe_zone_shrink(all_tributes: List[Tribute], rng: random.Random, sim
 
 def global_region_collapse(all_tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
     # Pick a non-center region to collapse; survivors flee to Center
-    collapsing = rng.choice([r for r in REGIONS if r != 'Center'])
+    collapsing = rng.choice([r for r in REGIONS if r != 'The Citadel'])
     lines = [f"A siren howls: the {collapsing} region becomes a kill zone!"]
     for t in list(all_tributes):
         if not t.alive:
@@ -844,7 +868,7 @@ def global_region_collapse(all_tributes: List[Tribute], rng: random.Random, sim)
             if 'agile' in t.traits:
                 chance -= 0.04
             if 'lucky' in t.traits:
-                chance -= 0.03
+                chance -= 0.03  
             if rng.random() < chance:
                 _kill(t, f"region collapse in {collapsing}")
                 lines.append(f"{t.name} is overwhelmed by the collapsing {collapsing} sector.")
