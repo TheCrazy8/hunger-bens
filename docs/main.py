@@ -470,6 +470,13 @@ def get_adjacent_regions(region: str) -> List[str]:
 
 def event_small_skirmish(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
     if len(tributes) < 2: return []
+    # Weighted targeting: higher notoriety more likely to be attacked
+    weights = []
+    for t in tributes:
+        weights.append(1 + t.notoriety * 0.4)
+    a = rng.choices(tributes, weights=weights, k=1)[0]
+    b_candidates = [t for t in tributes if t != a]
+    b = rng.choice(b_candidates)
     # Make sure tributes are in same or bordering regions
     region_map = {t.region: t for t in tributes}
     valid_pairs = []
@@ -478,13 +485,6 @@ def event_small_skirmish(tributes: List[Tribute], rng: random.Random, sim) -> Li
             if a != b and (a.region == b.region or b.region in get_adjacent_regions(a.region)):
                 valid_pairs.append((a, b))
     if not valid_pairs: return []
-    # Weighted targeting: higher notoriety more likely to be attacked
-    weights = []
-    for t in tributes:
-        weights.append(1 + t.notoriety * 0.4)
-    a = rng.choices(tributes, weights=weights, k=1)[0]
-    b_candidates = [t for t in tributes if t != a]
-    b = rng.choice(b_candidates)
     # Allies less likely to attack unless betrayal check triggers
     if sim.alliances.is_allied(a, b) and rng.random() < 0.75:
         return [f"{a.name} and {b.name} square up but recall their alliance and back off."]
