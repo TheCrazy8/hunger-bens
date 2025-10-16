@@ -128,9 +128,53 @@ HAZARD_EFFECTS = {
 }
 
 # -----------------------------
-# Map Regions (simple)
+# Map Regions & Biomes (detailed)
 # -----------------------------
-REGIONS = ["North", "South", "East", "West", "Center"]
+# Biome definitions control map color and slightly bias environmental hazards
+BIOMES_DEF: Dict[str, Dict[str, Any]] = {
+    "Forest":   {"fill": "#1e3b2a", "env_delta": -0.02, "hazards": ["forest fire","toxic spores","swarm of insects"]},
+    "Desert":   {"fill": "#5a4b2c", "env_delta": +0.02, "hazards": ["sandstorm","hail barrage"]},
+    "Swamp":    {"fill": "#243a2a", "env_delta": +0.01, "hazards": ["toxic spores","quicksand","swarm of insects"]},
+    "Mountain": {"fill": "#3b3f4a", "env_delta": +0.01, "hazards": ["falling debris","lightning strike","earthquake"]},
+    "Plains":   {"fill": "#2e3b4f", "env_delta":  0.00, "hazards": ["flash flood","hail barrage"]},
+    "Ruins":    {"fill": "#3a2e3f", "env_delta": +0.01, "hazards": ["falling debris","rogue drone"]},
+    "Lake":     {"fill": "#203a4f", "env_delta": -0.01, "hazards": ["flash flood","acid rain"]},
+    "Tundra":   {"fill": "#2f3b3f", "env_delta": +0.01, "hazards": ["hail barrage","hypersonic gust"]},
+    "Volcano":  {"fill": "#4a2e2e", "env_delta": +0.03, "hazards": ["lava vent","falling debris"]},
+}
+
+# Region layout in a grid (col,row) for map drawing; names double as Tribute.region values
+MAP_REGIONS: Dict[str, Dict[str, Any]] = {
+    # Row 0
+    "NW Forest":        {"grid": (0,0), "biome": "Forest",   "features": ["tall pines","forage spots"]},
+    "North Ridge":      {"grid": (1,0), "biome": "Mountain", "features": ["cliffs","thin air"]},
+    "North Dunes":      {"grid": (2,0), "biome": "Desert",   "features": ["dunes","mirages"]},
+    "NE Tundra":        {"grid": (3,0), "biome": "Tundra",   "features": ["permafrost","hail"]},
+    # Row 1
+    "West Swamp":       {"grid": (0,1), "biome": "Swamp",    "features": ["bogs","mosquitoes"]},
+    "Center":           {"grid": (1,1), "biome": "Plains",   "features": ["Cornucopia","open fields"]},
+    "East Ruins":       {"grid": (2,1), "biome": "Ruins",    "features": ["crumbling walls","drone beacons"]},
+    "Far East Lake":    {"grid": (3,1), "biome": "Lake",     "features": ["shoreline","islets"]},
+    # Row 2
+    "West Woods":       {"grid": (0,2), "biome": "Forest",   "features": ["dense underbrush"]},
+    "South Plains":     {"grid": (1,2), "biome": "Plains",   "features": ["tall grass","cover dips"]},
+    "South Marsh":      {"grid": (2,2), "biome": "Swamp",    "features": ["mire","strangler vines"]},
+    "SE Volcano":       {"grid": (3,2), "biome": "Volcano",  "features": ["vents","ashfall"]},
+    # Row 3
+    "Southwest Desert": {"grid": (0,3), "biome": "Desert",   "features": ["salt flats","dust devils"]},
+    "South Ridge":      {"grid": (1,3), "biome": "Mountain", "features": ["scree","caves"]},
+}
+
+# Public region names used throughout the simulator
+REGIONS: List[str] = list(MAP_REGIONS.keys())
+
+def get_region_biome(region: str) -> str:
+    info = MAP_REGIONS.get(region)
+    return (info or {}).get("biome", "Plains")
+
+def get_biome_info(region: str) -> Dict[str, Any]:
+    b = get_region_biome(region)
+    return BIOMES_DEF.get(b, {"fill": "#2e3b4f", "env_delta": 0.0, "hazards": []})
 
 # -----------------------------
 # Utility helpers
@@ -370,9 +414,13 @@ def event_alliance(tributes: List[Tribute], rng: random.Random, sim) -> List[str
 
 def event_environment(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
     t = rng.choice(tributes)
-    hazard = rng.choice(HAZARDS)
+    # Bias hazard and chance by current biome
+    biome = get_region_biome(t.region)
+    binfo = BIOMES_DEF.get(biome, {})
+    pref = list(binfo.get("hazards", []))
+    hazard = rng.choice(pref) if pref and rng.random() < 0.45 else rng.choice(HAZARDS)
     effect = HAZARD_EFFECTS[hazard]
-    chance = 0.28 - (t.morale - 5) * 0.015
+    chance = 0.28 - (t.morale - 5) * 0.015 + float(binfo.get("env_delta", 0.0))
     if 'agile' in t.traits:
         chance -= 0.03
     if 'lucky' in t.traits:
@@ -1577,7 +1625,11 @@ class HungerBensSimulator:
                 old = t.region
                 t.region = self.rng.choice(REGIONS)
                 if t.region != old:
-                    self._log(f"{t.name} relocates from {old} to {t.region} under cover of darkness.")
+                    try:
+                        biome = get_region_biome(t.region)
+                        self._log(f"{t.name} relocates from {old} to {t.region} ({biome}) under cover of darkness.")
+                    except Exception:
+                        self._log(f"{t.name} relocates from {old} to {t.region} under cover of darkness.")
             # Log consumption
             if ate or drank:
                 parts = []
@@ -1946,34 +1998,31 @@ if os.name == 'nt':
             c.delete('all')
             w = int(c['width'])
             h = int(c['height'])
-            # 3x3 grid layout; regions are center and the four cardinals around it
-            cell_w = w // 3
-            cell_h = h // 3
-            # Helper to draw a region rectangle and label
-            def region_box(rx, ry, name, fill):
+            # 4x4 grid layout driven by MAP_REGIONS positions
+            cols, rows = 4, 4
+            cell_w = w // cols
+            cell_h = h // rows
+            # Helper to draw a region rectangle and label w/ biome tint
+            def region_box(name: str, rx: int, ry: int):
+                info = MAP_REGIONS.get(name, {})
+                biome = info.get('biome', 'Plains')
+                fill = get_biome_info(name).get('fill', '#222b36')
                 x0 = rx * cell_w + 6
                 y0 = ry * cell_h + 6
                 x1 = (rx + 1) * cell_w - 6
                 y1 = (ry + 1) * cell_h - 6
                 c.create_rectangle(x0, y0, x1, y1, outline="#555", fill=fill)
-                c.create_text((x0 + x1)//2, y0 + 14, text=name, fill="#ddd", font=(None, 10, 'bold'))
+                c.create_text((x0 + x1)//2, y0 + 14, text=f"{name}", fill="#ddd", font=(None, 9, 'bold'))
                 self._region_boxes[name] = (x0, y0, x1, y1)
-            # Draw regions
-            palette = {
-                'North': '#1f2833',
-                'South': '#1f2833',
-                'East': '#1f2833',
-                'West': '#1f2833',
-                'Center': '#222b36',
-            }
-            region_box(1, 0, 'North', palette['North'])
-            region_box(1, 2, 'South', palette['South'])
-            region_box(2, 1, 'East', palette['East'])
-            region_box(0, 1, 'West', palette['West'])
-            region_box(1, 1, 'Center', palette['Center'])
-            # Draw grid lines for visual structure
-            for i in range(1, 3):
+            # Draw all map regions
+            self._region_boxes.clear()
+            for rname, rinfo in MAP_REGIONS.items():
+                gx, gy = rinfo.get('grid', (0,0))
+                region_box(rname, gx, gy)
+            # Grid lines
+            for i in range(1, cols):
                 c.create_line(i * cell_w, 0, i * cell_w, h, fill="#333")
+            for i in range(1, rows):
                 c.create_line(0, i * cell_h, w, i * cell_h, fill="#333")
 
         def _hash_seed(self, s: str) -> int:
@@ -2114,6 +2163,7 @@ if os.name == 'nt':
             c = self.map_canvas
             items = c.find_overlapping(event.x-2, event.y-2, event.x+2, event.y+2)
             hovered_key = None
+            hovered_region = None
             for it in items:
                 tags = c.gettags(it)
                 for tg in tags:
@@ -2122,15 +2172,28 @@ if os.name == 'nt':
                         break
                 if hovered_key:
                     break
+            # If no tribute marker under cursor, try showing region tooltip
             if not hovered_key:
-                self._hide_tooltip()
+                # Determine region under cursor
+                for name, (x0,y0,x1,y1) in self._region_boxes.items():
+                    if x0 <= event.x <= x1 and y0 <= event.y <= y1:
+                        hovered_region = name
+                        break
+                if not hovered_region:
+                    self._hide_tooltip(); return
+                info = MAP_REGIONS.get(hovered_region, {})
+                biome = info.get('biome', 'Unknown')
+                feats = info.get('features', [])
+                text = f"{hovered_region}\nBiome: {biome}\nFeatures: {', '.join(feats) if feats else 'None'}"
+                self._show_tooltip(event.x_root, event.y_root, text)
                 return
             # Find tribute and show tooltip
             try:
                 t = next((x for x in self.current_sim.tributes if x.key == hovered_key), None)
                 if not t:
                     self._hide_tooltip(); return
-                text = f"{t.name} (D{t.district})\nReg: {t.region}\nKills: {t.kills} | Morale: {t.morale}"
+                biome = get_region_biome(t.region)
+                text = f"{t.name} (D{t.district})\nReg: {t.region} | {biome}\nKills: {t.kills} | Morale: {t.morale}"
                 self._show_tooltip(event.x_root, event.y_root, text)
             except Exception:
                 self._hide_tooltip()
