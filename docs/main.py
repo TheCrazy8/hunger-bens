@@ -1151,6 +1151,133 @@ class HungerBensSimulator:
                 except Exception:
                     t.traits = []
 
+        # Step-mode state (GUI manual stepping)
+        self._step_active: bool = False
+        self._step_phase: Optional[str] = None  # intro, corn, setup_day, day, setup_night, night, end_of_day, finalize, done
+        self._step_events_left: int = 0
+        self._step_block: Optional[str] = None  # 'day' or 'night'
+
+    # --- Manual step mode API (for GUI) ---
+    def start_stepping(self):
+        """Prepare the simulator to run one event at a time via step_once()."""
+        if self._step_active:
+            return
+        self._step_active = True
+        self._step_phase = 'intro'
+        # Ensure cornucopia not run yet
+        self._cornucopia_run = False
+
+    def _prepare_block(self, block: str):
+        # Setup event count for a block
+        alive = self.alive_tributes()
+        events_to_run = 0
+        if alive:
+            events_to_run = min(len(alive), self.rng.randint(3, 6))
+        self._step_events_left = events_to_run
+        self._step_block = block
+
+    def _print_fallen_for_phase(self, phase: str):
+        fallen = [t for t in self.tributes if not t.alive and f"(Fallen logged {t.key})" not in t.__dict__]
+        if fallen:
+            self._log("\nFallen this phase:")
+            for f in fallen:
+                self._log(f" - {f.name}")
+                f.__dict__[f"(Fallen logged {f.key})"] = True
+                self.death_log.append({"name": f.name, "cause": f.cause_of_death, "day": self.day_count, "phase": phase})
+        self.alliances.remove_dead(self.tributes)
+
+    def step_once(self) -> bool:
+        """Execute the next event unit. Returns True when the simulation is fully complete."""
+        if not self._step_active:
+            # If not in step mode, run to completion
+            self.run()
+            return True
+        if self._step_phase == 'done':
+            return True
+        # Intro step
+        if self._step_phase == 'intro':
+            self._log_intro()
+            self._step_phase = 'corn'
+            return False
+        # Cornucopia step
+        if self._step_phase == 'corn':
+            self._cornucopia_phase()
+            self._step_phase = 'setup_day'
+            return False
+        # Setup next day
+        if self._step_phase == 'setup_day':
+            # Termination checks before starting a new day
+            if len(self.alive_tributes()) <= 1 or self.day_count >= self.max_days or (self.strict_shutdown and self.day_count >= self.strict_shutdown and len(self.alive_tributes()) > 2):
+                self._step_phase = 'finalize'
+            else:
+                self.day_count += 1
+                self._log(f"\n--- Day {self.day_count} ---")
+                # Track average morale like normal
+                alive = self.alive_tributes()
+                if alive:
+                    avg_morale = sum(t.morale for t in alive)/len(alive)
+                    self.history_stats["day_morale_avg"].append(avg_morale)
+                self._prepare_block('day')
+                self._step_phase = 'day'
+            return False
+        # Day events (one at a time)
+        if self._step_phase == 'day':
+            if self._step_events_left <= 0:
+                # After block: maybe global event, then fallen, then setup night
+                self._maybe_global_event()
+                self._print_fallen_for_phase('day')
+                self._step_phase = 'setup_night'
+                return False
+            alive = self.alive_tributes()
+            if len(alive) <= 1:
+                self._step_phase = 'finalize'
+                return False
+            event_func = self._choose_weighted_event(DAY_EVENTS)
+            narrative = event_func(alive, self.rng, self)
+            self.history_stats["events_run"] += 1
+            for line in narrative:
+                if line:
+                    self._log(line)
+            self._post_event_cleanup()
+            self._step_events_left -= 1
+            return False
+        # Setup night
+        if self._step_phase == 'setup_night':
+            self._log(f"\n*** Night {self.day_count} ***")
+            self._prepare_block('night')
+            self._step_phase = 'night'
+            return False
+        # Night events (one at a time)
+        if self._step_phase == 'night':
+            if self._step_events_left <= 0:
+                # After night block: apply resource tick, then maybe proceed
+                self._print_fallen_for_phase('night')
+                self._resource_tick()
+                self._step_phase = 'setup_day'
+                return False
+            alive = self.alive_tributes()
+            if len(alive) <= 1:
+                self._step_phase = 'finalize'
+                return False
+            event_func = self._choose_weighted_event(NIGHT_EVENTS)
+            narrative = event_func(alive, self.rng, self)
+            self.history_stats["events_run"] += 1
+            for line in narrative:
+                if line:
+                    self._log(line)
+            self._post_event_cleanup()
+            self._step_events_left -= 1
+            return False
+        # Finalization step
+        if self._step_phase == 'finalize':
+            self._announce_winner()
+            self._output_stats()
+            if self.export_log_path:
+                self._export_run()
+            self._step_phase = 'done'
+            return True
+        return False
+
     # --- Basic helpers ---
     def alive_tributes(self) -> List[Tribute]:
         return [t for t in self.tributes if t.alive]
@@ -1669,6 +1796,9 @@ if os.name == 'nt':
             self.current_sim: Optional[HungerBensSimulator] = None
             self.roster_override: Optional[Dict[str, Dict[str, Any]]] = None
             self.plugins_var = tkinter.BooleanVar(value=bool(_CONFIG.get('plugins_enabled', _default_plugins_enabled())))
+            # Map/Tracker state
+            self.tribute_colors: Dict[str, str] = {}
+            self._region_boxes: Dict[str, Tuple[int, int, int, int]] = {}
             self._build_widgets()
             # Persist when toggled
             try:
@@ -1677,10 +1807,14 @@ if os.name == 'nt':
                 pass
 
         def _build_widgets(self):
+            # Root layout: two columns (left main UI, right map panel)
+            self.root.columnconfigure(0, weight=1)
+            self.root.columnconfigure(1, weight=0)
+            self.root.rowconfigure(1, weight=1)
+
+            # Left controls frame
             frm = ttk.Frame(self.root, padding=10)
             frm.grid(row=0, column=0, sticky='nsew')
-            self.root.columnconfigure(0, weight=1)
-            self.root.rowconfigure(1, weight=1)
 
             # Inputs
             ttk.Label(frm, text="Seed:").grid(row=0, column=0, sticky='w')
@@ -1733,11 +1867,37 @@ if os.name == 'nt':
             ttk.Button(btn_frame, text="Settings", command=self._open_settings).grid(row=0, column=3, padx=4)
             ttk.Button(btn_frame, text="Quit", command=self.root.quit).grid(row=0, column=4, padx=4)
 
+            # Step controls
+            step_row = ttk.Frame(frm)
+            step_row.grid(row=8, column=0, columnspan=4, sticky='we', pady=(4,0))
+            self.step_mode_var = tkinter.BooleanVar(value=False)
+            self.hide_fallen_var = tkinter.BooleanVar(value=True)
+            ttk.Checkbutton(step_row, text="Manual step mode (Enter to step)", variable=self.step_mode_var, command=self._on_step_mode_toggle).pack(side='left')
+            ttk.Button(step_row, text="Step (Enter)", command=self._step_once).pack(side='left', padx=6)
+            ttk.Checkbutton(step_row, text="Hide fallen on map", variable=self.hide_fallen_var, command=self._update_map_from_sim).pack(side='left', padx=8)
+            # Next N events controls
+            nn = ttk.Frame(frm)
+            nn.grid(row=9, column=0, columnspan=4, sticky='we')
+            ttk.Label(nn, text="Next N events:").pack(side='left')
+            self.step_n_entry = ttk.Entry(nn, width=5)
+            self.step_n_entry.insert(0, '5')
+            self.step_n_entry.pack(side='left', padx=(4,6))
+            ttk.Button(nn, text="Next N", command=self._step_n_click).pack(side='left')
+
+            # Next Day and Until X Left controls
+            nd = ttk.Frame(frm)
+            nd.grid(row=10, column=0, columnspan=4, sticky='we', pady=(2,0))
+            ttk.Button(nd, text="Next Day (to night)", command=self._next_day_click).pack(side='left')
+            ttk.Label(nd, text="  Run until X left:").pack(side='left')
+            self.until_left_entry = ttk.Entry(nd, width=5)
+            self.until_left_entry.insert(0, '4')
+            self.until_left_entry.pack(side='left', padx=(4,6))
+            ttk.Button(nd, text="Run", command=self._run_until_left_click).pack(side='left')
+            ttk.Button(nd, text="Next Night (to day)", command=self._next_night_click).pack(side='left', padx=(12,0))
+
             # Output area
             self.output = scrolledtext.ScrolledText(self.root, wrap='word', height=30)
             self.output.grid(row=1, column=0, sticky='nsew')
-            self.root.rowconfigure(1, weight=1)
-            self.root.columnconfigure(0, weight=1)
             # Styling tags for simple markdown-like emphasis
             try:
                 self.output.tag_configure('header', font=(None, 11, 'bold'))
@@ -1750,6 +1910,155 @@ if os.name == 'nt':
             style_row = ttk.Frame(self.root)
             style_row.grid(row=2, column=0, sticky='we')
             ttk.Checkbutton(style_row, text="Markdown-style output", variable=self.styled_var).pack(anchor='w', padx=10)
+
+            # Right map/tracker panel
+            self._init_map_panel()
+
+        def _init_map_panel(self):
+            panel = ttk.Frame(self.root, padding=(6, 10, 10, 10))
+            panel.grid(row=0, column=1, rowspan=3, sticky='ns')
+            ttk.Label(panel, text="Arena Map", font=(None, 12, 'bold')).pack(anchor='n')
+            # Canvas for map
+            self.map_canvas = tkinter.Canvas(panel, width=360, height=480, background="#111")
+            self.map_canvas.pack(anchor='n', pady=(6, 6))
+            # Tooltip label (hidden by default)
+            self._tooltip = tkinter.Label(panel, text='', background='#222', foreground='#fff', relief='solid', borderwidth=1, padx=4, pady=2)
+            self._tooltip.place_forget()
+            # Legend area
+            ttk.Label(panel, text="Legend").pack(anchor='w')
+            self.legend = scrolledtext.ScrolledText(panel, width=36, height=10)
+            try:
+                self.legend.configure(state='disabled')
+            except Exception:
+                pass
+            self.legend.pack(fill='x', anchor='w')
+            # Pre-draw the static map grid
+            self._draw_map_static()
+            # Bind mouse motion for tooltip
+            try:
+                self.map_canvas.bind('<Motion>', self._on_map_motion)
+                self.map_canvas.bind('<Leave>', lambda e: self._hide_tooltip())
+            except Exception:
+                pass
+
+        def _draw_map_static(self):
+            c = self.map_canvas
+            c.delete('all')
+            w = int(c['width'])
+            h = int(c['height'])
+            # 3x3 grid layout; regions are center and the four cardinals around it
+            cell_w = w // 3
+            cell_h = h // 3
+            # Helper to draw a region rectangle and label
+            def region_box(rx, ry, name, fill):
+                x0 = rx * cell_w + 6
+                y0 = ry * cell_h + 6
+                x1 = (rx + 1) * cell_w - 6
+                y1 = (ry + 1) * cell_h - 6
+                c.create_rectangle(x0, y0, x1, y1, outline="#555", fill=fill)
+                c.create_text((x0 + x1)//2, y0 + 14, text=name, fill="#ddd", font=(None, 10, 'bold'))
+                self._region_boxes[name] = (x0, y0, x1, y1)
+            # Draw regions
+            palette = {
+                'North': '#1f2833',
+                'South': '#1f2833',
+                'East': '#1f2833',
+                'West': '#1f2833',
+                'Center': '#222b36',
+            }
+            region_box(1, 0, 'North', palette['North'])
+            region_box(1, 2, 'South', palette['South'])
+            region_box(2, 1, 'East', palette['East'])
+            region_box(0, 1, 'West', palette['West'])
+            region_box(1, 1, 'Center', palette['Center'])
+            # Draw grid lines for visual structure
+            for i in range(1, 3):
+                c.create_line(i * cell_w, 0, i * cell_w, h, fill="#333")
+                c.create_line(0, i * cell_h, w, i * cell_h, fill="#333")
+
+        def _hash_seed(self, s: str) -> int:
+            try:
+                return int(hashlib.sha256(s.encode('utf-8')).hexdigest()[:8], 16)
+            except Exception:
+                return abs(hash(s)) & 0xFFFFFFFF
+
+        def _region_point_for(self, region: str, key: str) -> Tuple[int, int]:
+            box = self._region_boxes.get(region)
+            if not box:
+                # Fallback to center if unknown
+                box = self._region_boxes.get('Center', (10, 10, 100, 100))
+            x0, y0, x1, y1 = box
+            pad = 10
+            x0p, y0p, x1p, y1p = x0 + pad, y0 + 24, x1 - pad, y1 - pad
+            rng = random.Random(self._hash_seed(f"{key}|{region}"))
+            x = int(rng.uniform(x0p, x1p))
+            y = int(rng.uniform(y0p, y1p))
+            return x, y
+
+        def _generate_unique_colors(self, keys: List[str]) -> Dict[str, str]:
+            # Evenly spaced hues for distinct colors
+            n = max(1, len(keys))
+            colors: Dict[str, str] = {}
+            def hsv_to_hex(h, s, v):
+                import colorsys
+                r, g, b = colorsys.hsv_to_rgb(h, s, v)
+                return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+            for i, k in enumerate(keys):
+                h = (i / n) % 1.0
+                # Use high saturation/value for visibility
+                colors[k] = hsv_to_hex(h, 0.75, 0.95)
+            return colors
+
+        def _refresh_legend(self):
+            try:
+                self.legend.configure(state='normal')
+                self.legend.delete('1.0', 'end')
+                if not self.current_sim:
+                    self.legend.insert('end', 'Run a simulation to populate the legend.')
+                    self.legend.configure(state='disabled')
+                    return
+                for t in self.current_sim.tributes:
+                    color = self.tribute_colors.get(t.key, '#aaa')
+                    tag = f"c_{t.key}"
+                    try:
+                        self.legend.tag_configure(tag, foreground=color)
+                    except Exception:
+                        pass
+                    status = '✖' if not t.alive else '●'
+                    self.legend.insert('end', f"{status} ")
+                    self.legend.insert('end', "■ ", tag)
+                    self.legend.insert('end', f"{t.name} (D{t.district})\n")
+                self.legend.configure(state='disabled')
+            except Exception:
+                pass
+
+        def _update_map_from_sim(self):
+            # Draw/refresh tribute markers based on current simulator state
+            c = self.map_canvas
+            if not c:
+                return
+            # Keep static background, remove only markers
+            c.delete('marker')
+            sim = self.current_sim
+            if not sim:
+                return
+            radius = 5
+            for t in sim.tributes:
+                color = self.tribute_colors.get(t.key, '#aaa')
+                x, y = self._region_point_for(t.region if t.region in REGIONS else 'Center', t.key)
+                if not t.alive:
+                    if self.hide_fallen_var.get():
+                        continue
+                    # Draw an X for fallen tributes in grayscale
+                    l1 = c.create_line(x - radius, y - radius, x + radius, y + radius, fill='#777', width=2, tags=('marker', 'm_'+t.key))
+                    l2 = c.create_line(x - radius, y + radius, x + radius, y - radius, fill='#777', width=2, tags=('marker', 'm_'+t.key))
+                    c.addtag_withtag('m_'+t.key, l1)
+                    c.addtag_withtag('m_'+t.key, l2)
+                else:
+                    ov = c.create_oval(x - radius, y - radius, x + radius, y + radius, fill=color, outline='#000', width=1, tags=('marker', 'm_'+t.key))
+                    c.addtag_withtag('m_'+t.key, ov)
+            # Optionally refresh legend statuses
+            self._refresh_legend()
 
         def _browse_export(self):
             path = filedialog.asksaveasfilename(defaultextension='.json', filetypes=[('JSON','*.json')])
@@ -1798,12 +2107,66 @@ if os.name == 'nt':
             except Exception as e:
                 messagebox.showerror("Content Error", f"Failed to integrate content: {e}")
 
+        def _on_map_motion(self, event):
+            if not self.current_sim:
+                return
+            # Hit test for marker items; we tagged per-tribute as 'm_<key>'
+            c = self.map_canvas
+            items = c.find_overlapping(event.x-2, event.y-2, event.x+2, event.y+2)
+            hovered_key = None
+            for it in items:
+                tags = c.gettags(it)
+                for tg in tags:
+                    if tg.startswith('m_'):
+                        hovered_key = tg[2:]
+                        break
+                if hovered_key:
+                    break
+            if not hovered_key:
+                self._hide_tooltip()
+                return
+            # Find tribute and show tooltip
+            try:
+                t = next((x for x in self.current_sim.tributes if x.key == hovered_key), None)
+                if not t:
+                    self._hide_tooltip(); return
+                text = f"{t.name} (D{t.district})\nReg: {t.region}\nKills: {t.kills} | Morale: {t.morale}"
+                self._show_tooltip(event.x_root, event.y_root, text)
+            except Exception:
+                self._hide_tooltip()
+
+        def _show_tooltip(self, screen_x: int, screen_y: int, text: str):
+            try:
+                self._tooltip.configure(text=text)
+                # Position near cursor; translate to panel-local using place(x,y)
+                # Compute relative coords to panel
+                panel = self._tooltip.master
+                if hasattr(panel, 'winfo_rootx'):
+                    rx = screen_x - panel.winfo_rootx() + 12
+                    ry = screen_y - panel.winfo_rooty() + 12
+                else:
+                    rx, ry = 10, 10
+                self._tooltip.place(x=rx, y=ry)
+            except Exception:
+                pass
+
+        def _hide_tooltip(self):
+            try:
+                self._tooltip.place_forget()
+            except Exception:
+                pass
+
         def _append_log(self, line: str):
             # Markdown-like rendering: headers (# ...), section lines (---/***/===), bold (**...**), italics (_..._), list bullets
             try:
                 if not self.styled_var.get():
                     self.output.insert('end', line + '\n')
                     self.output.see('end')
+                    # Try to refresh the map alongside plain output mode
+                    try:
+                        self._update_map_from_sim()
+                    except Exception:
+                        pass
                     return
                 text = line
                 is_header = False
@@ -1834,6 +2197,11 @@ if os.name == 'nt':
                     except Exception:
                         pass
                 self.output.see('end')
+                # Keep map in sync during logging
+                try:
+                    self._update_map_from_sim()
+                except Exception:
+                    pass
             except Exception:
                 self.output.insert('end', line + '\n')
                 self.output.see('end')
@@ -1859,19 +2227,262 @@ if os.name == 'nt':
             self._clear_output()
             self._append_log("Launching simulation...")
             try:
-                self.current_sim = run_simulation(
+                # Build simulator directly so we can live-update map using self.current_sim
+                tribute_source = self.roster_override if self.roster_override else dicty
+                # Optional plugin loading (Windows only)
+                try:
+                    if self.plugins_var.get():
+                        load_windows_plugins(self._append_log)
+                except Exception:
+                    pass
+                sim = HungerBensSimulator(
+                    tribute_source,
                     seed=seed,
                     max_days=max_days,
                     verbose=verbose,
                     export_log=export_file,
-                    roster=self.roster_override,
                     strict_shutdown=strict,
                     log_callback=self._append_log,
-                    enable_plugins=self.plugins_var.get(),
                 )
-                self._append_log("Simulation complete.")
+                # Assign deterministic unique colors for all tributes
+                keys = [t.key for t in sim.tributes]
+                self.tribute_colors = self._generate_unique_colors(keys)
+                self.current_sim = sim
+                # Refresh legend and map before run to show initial positions
+                self._draw_map_static()
+                self._refresh_legend()
+                self._update_map_from_sim()
+                if self.step_mode_var.get():
+                    sim.start_stepping()
+                    # Bind Enter key for stepping
+                    try:
+                        self.root.bind('<Return>', lambda e: self._step_once())
+                    except Exception:
+                        pass
+                else:
+                    # Run simulation (blocking)
+                    sim.run()
+                    self._append_log("Simulation complete.")
             except Exception as e:
                 messagebox.showerror("Run Error", f"Simulation failed: {e}")
+
+        def _on_step_mode_toggle(self):
+            # Rebind Enter only when enabled
+            try:
+                if self.step_mode_var.get():
+                    self.root.bind('<Return>', lambda e: self._step_once())
+                else:
+                    self.root.unbind('<Return>')
+            except Exception:
+                pass
+
+        def _step_once(self):
+            if not self.current_sim:
+                return
+            finished = self.current_sim.step_once()
+            if finished:
+                self._append_log("Simulation complete.")
+                # Unbind after completion
+                try:
+                    self.root.unbind('<Return>')
+                except Exception:
+                    pass
+            # Always try to refresh visuals after a step
+            try:
+                self._update_map_from_sim()
+            except Exception:
+                pass
+
+        def _ensure_step_mode(self):
+            # If the current sim isn't in step mode yet, enable it
+            if not self.current_sim:
+                return False
+            sim = self.current_sim
+            try:
+                if not getattr(sim, '_step_active', False):
+                    sim.start_stepping()
+                    self.step_mode_var.set(True)
+                    try:
+                        self.root.bind('<Return>', lambda e: self._step_once())
+                    except Exception:
+                        pass
+            except Exception:
+                return False
+            return True
+
+        def _step_n_click(self):
+            if not self.current_sim:
+                return
+            # Parse N
+            try:
+                n = int(self.step_n_entry.get().strip())
+            except Exception:
+                n = 5
+            n = max(1, min(1000, n))
+            self._step_n(n)
+
+        def _step_n(self, n: int):
+            if not self._ensure_step_mode():
+                return
+            sim = self.current_sim
+            # Advance until N day/night events occur or finished
+            start_events = sim.history_stats.get('events_run', 0)
+            target = start_events + n
+            finished = False
+            # Step loop
+            guard = 0
+            while sim.history_stats.get('events_run', 0) < target and not finished:
+                finished = sim.step_once()
+                # Refresh visuals and pump UI
+                try:
+                    self._update_map_from_sim()
+                    self.root.update_idletasks()
+                except Exception:
+                    pass
+                guard += 1
+                if guard > n * 5 + 100:
+                    # Safety break in case of unforeseen loop conditions
+                    break
+            if finished:
+                self._append_log("Simulation complete.")
+                try:
+                    self.root.unbind('<Return>')
+                except Exception:
+                    pass
+
+        def _next_day_click(self):
+            self._step_until_next_night()
+
+        def _step_until_next_night(self):
+            if not self._ensure_step_mode():
+                return
+            sim = self.current_sim
+            finished = False
+            transitions = 0
+            guard = 0
+            while not finished:
+                prev_phase = getattr(sim, '_step_phase', None)
+                finished = sim.step_once()
+                # Reached the night header when we transition setup_night -> night
+                if prev_phase == 'setup_night' and getattr(sim, '_step_phase', None) == 'night':
+                    transitions += 1
+                    break
+                try:
+                    self._update_map_from_sim()
+                    self.root.update_idletasks()
+                except Exception:
+                    pass
+                guard += 1
+                if guard > 2000:
+                    break
+            # Final refresh and completion handling
+            try:
+                self._update_map_from_sim()
+            except Exception:
+                pass
+            if finished:
+                self._append_log("Simulation complete.")
+                try:
+                    self.root.unbind('<Return>')
+                except Exception:
+                    pass
+
+        def _run_until_left_click(self):
+            if not self._ensure_step_mode():
+                return
+            try:
+                target_left = int(self.until_left_entry.get().strip())
+            except Exception:
+                target_left = 4
+            target_left = max(1, target_left)
+            self._run_until_left(target_left)
+
+        def _run_until_left(self, target_left: int):
+            sim = self.current_sim
+            if not sim:
+                return
+            finished = False
+            guard = 0
+            while not finished:
+                # Check condition
+                try:
+                    alive_count = len(sim.alive_tributes())
+                except Exception:
+                    alive_count = target_left
+                if alive_count <= target_left:
+                    break
+                finished = sim.step_once()
+                try:
+                    self._update_map_from_sim()
+                    self.root.update_idletasks()
+                except Exception:
+                    pass
+                guard += 1
+                if guard > 10000:
+                    break
+            # Final UI updates
+            try:
+                self._update_map_from_sim()
+            except Exception:
+                pass
+            if finished:
+                self._append_log("Simulation complete.")
+                try:
+                    self.root.unbind('<Return>')
+                except Exception:
+                    pass
+
+        def _next_night_click(self):
+            self._step_until_night_complete()
+
+        def _step_until_night_complete(self):
+            if not self._ensure_step_mode():
+                return
+            sim = self.current_sim
+            finished = False
+            guard = 0
+            # If we're not yet in the night block for the current day, advance to it first
+            while getattr(sim, '_step_phase', None) not in ('night', 'setup_night', 'finalize', 'done') and not finished:
+                finished = sim.step_once()
+                try:
+                    self._update_map_from_sim(); self.root.update_idletasks()
+                except Exception:
+                    pass
+                guard += 1
+                if guard > 2000:
+                    break
+            if finished:
+                self._append_log("Simulation complete.")
+                try:
+                    self.root.unbind('<Return>')
+                except Exception:
+                    pass
+                return
+            # Now consume the night block fully, including the nightly resource tick
+            guard2 = 0
+            while not finished:
+                prev_phase = getattr(sim, '_step_phase', None)
+                finished = sim.step_once()
+                # Stop once we've transitioned past night to setup_day
+                if prev_phase == 'night' and getattr(sim, '_step_phase', None) == 'setup_day':
+                    break
+                try:
+                    self._update_map_from_sim(); self.root.update_idletasks()
+                except Exception:
+                    pass
+                guard2 += 1
+                if guard2 > 5000:
+                    break
+            try:
+                self._update_map_from_sim()
+            except Exception:
+                pass
+            if finished:
+                self._append_log("Simulation complete.")
+                try:
+                    self.root.unbind('<Return>')
+                except Exception:
+                    pass
 
         def _on_plugins_toggle(self):
             val = bool(self.plugins_var.get())

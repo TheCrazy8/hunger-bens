@@ -175,6 +175,30 @@
   </fieldset>
 
   <fieldset>
+    <legend>Step Mode (Web)</legend>
+    <div class="row">
+      <button id="startStepBtn" type="button">Start Step Mode</button>
+      <button id="stepOnceBtn" type="button">Step Once</button>
+      <span class="inline">
+        <label for="stepN" class="inline" style="margin: 0 .4rem 0 .7rem;">Next N</label>
+        <input id="stepN" type="number" min="1" max="1000" value="5" style="width:5rem;"/>
+        <button id="stepNBtn" type="button">Next N</button>
+      </span>
+    </div>
+    <div class="row">
+      <button id="nextDayBtn" type="button">Next Day (to night)</button>
+      <button id="nextNightBtn" type="button">Next Night (to day)</button>
+      <span class="inline">
+        <label for="untilLeft" class="inline" style="margin: 0 .4rem 0 .7rem;">Run until X left</label>
+        <input id="untilLeft" type="number" min="1" max="200" value="4" style="width:5rem;"/>
+        <button id="untilLeftBtn" type="button">Run</button>
+      </span>
+      <button id="finishBtn" type="button">Finish</button>
+    </div>
+    <div id="stepStatus" style="margin-top:.5rem; color:#9ad; font-size:.9rem;">Step mode idle.</div>
+  </fieldset>
+
+  <fieldset>
     <legend>Log Output</legend>
     <div id="log" aria-live="polite"></div>
   </fieldset>
@@ -201,9 +225,23 @@ const logEl = document.getElementById('log');
 const runBtn = document.getElementById('runBtn');
 const clearBtn = document.getElementById('clearBtn');
 const downloadBtn = document.getElementById('downloadBtn');
+// Step controls
+const startStepBtn = document.getElementById('startStepBtn');
+const stepOnceBtn = document.getElementById('stepOnceBtn');
+const stepNInput = document.getElementById('stepN');
+const stepNBtn = document.getElementById('stepNBtn');
+const nextDayBtn = document.getElementById('nextDayBtn');
+const nextNightBtn = document.getElementById('nextNightBtn');
+const untilLeftInput = document.getElementById('untilLeft');
+const untilLeftBtn = document.getElementById('untilLeftBtn');
+const finishBtn = document.getElementById('finishBtn');
+const stepStatus = document.getElementById('stepStatus');
 let pyodide = null;
 let lastRunData = null;
 let simulatorReady = false;
+let stepActive = false;
+let stepFinished = false;
+let lastLogIndex = 0;
 
 function appendLog(line){
   const div = document.createElement('div');
@@ -646,6 +684,314 @@ result = {
     statusEl.textContent='Error.';
   }
 });
+
+  // -------------- Step Mode Wiring --------------
+  async function startStepMode(){
+    if(!pyodide || !simulatorReady){ appendLog('Simulator not loaded yet.'); return; }
+    syncBuildersToJSON();
+    lastRunData = null;
+    downloadBtn.disabled = true;
+    stepFinished = false;
+    stepActive = false;
+    lastLogIndex = 0;
+    statusEl.textContent = 'Preparing step mode...';
+
+    const seedVal = document.getElementById('seed').value.trim();
+    const daysVal = parseInt(document.getElementById('days').value,10) || 30;
+    const strictVal = document.getElementById('strict').value.trim();
+    const rosterTxt = document.getElementById('roster').value.trim();
+    const contentTxt = document.getElementById('content').value.trim();
+    const pySeedLiteral = seedVal !== '' && /^\d+$/.test(seedVal) ? seedVal : 'None';
+    const pyStrictLiteral = strictVal !== '' && /^\d+$/.test(strictVal) ? strictVal : 'None';
+
+    const initCode = `
+  import importlib, json
+  hm = importlib.import_module('hunger_main')
+  # Optional content integration
+  try:
+    load_custom_content_from_string = getattr(hm, 'load_custom_content_from_string', None)
+    integrate_custom_content = getattr(hm, 'integrate_custom_content', None)
+    content_text = ${JSON.stringify(contentTxt)}
+    if content_text and load_custom_content_from_string and integrate_custom_content:
+      try:
+        custom = load_custom_content_from_string(content_text)
+        integrate_custom_content(custom)
+      except Exception:
+        pass
+  except Exception:
+    pass
+
+  # Parse roster
+  roster = None
+  roster_text = ${JSON.stringify(rosterTxt)}
+  if roster_text:
+    try:
+      roster = json.loads(roster_text)
+    except Exception:
+      roster = None
+
+  sim = hm.run_simulation(seed=${pySeedLiteral}, max_days=${daysVal}, roster=roster, strict_shutdown=${pyStrictLiteral}, verbose=True, log_callback=None, enable_plugins=False)
+  # Rebuild sim to ensure we do not auto-run; run_simulation() already ran; so we must construct a fresh simulator without running.
+  # Fall back: construct directly
+  if getattr(sim, 'day_count', None) not in (0, None) or len(getattr(sim, 'log', []) or []) > 0:
+    try:
+      sim = hm.HungerBensSimulator(roster if roster is not None else hm.dicty, seed=${pySeedLiteral}, max_days=${daysVal}, verbose=True, export_log=None, strict_shutdown=${pyStrictLiteral}, log_callback=None)
+    except Exception:
+      sim = hm.HungerBensSimulator(hm.dicty, seed=${pySeedLiteral}, max_days=${daysVal}, verbose=True, export_log=None, strict_shutdown=${pyStrictLiteral}, log_callback=None)
+  sim.start_stepping()
+  hm._web_sim = sim
+  len(sim.log)
+  `;
+    try {
+      const initLen = await pyodide.runPythonAsync(initCode);
+      stepActive = true;
+      stepFinished = false;
+      lastLogIndex = Number(initLen) || 0;
+      statusEl.textContent = 'Step mode ready. Press Step or use jump controls.';
+      stepStatus.textContent = 'Step mode: ready';
+    } catch(e){
+      statusEl.textContent = 'Error setting up step mode.';
+      appendLog('Step init error: ' + e);
+    }
+  }
+
+  async function fetchNewLogs(){
+    const code = `
+  import importlib, json
+  hm = importlib.import_module('hunger_main')
+  sim = getattr(hm, '_web_sim', None)
+  logs = sim.log if sim else []
+  start = ${lastLogIndex}
+  new = logs[start:]
+  json.dumps(new)
+  `;
+    const res = await pyodide.runPythonAsync(code);
+    let arr = [];
+    try { arr = JSON.parse(res); } catch {}
+    if(Array.isArray(arr) && arr.length){
+      arr.forEach(appendLog);
+      lastLogIndex += arr.length;
+    }
+  }
+
+  async function stepOnce(){
+    if(!stepActive || stepFinished){ return; }
+    const code = `
+  import importlib
+  hm = importlib.import_module('hunger_main')
+  sim = getattr(hm, '_web_sim', None)
+  bool(sim.step_once()) if sim else True
+  `;
+    const finished = await pyodide.runPythonAsync(code);
+    await fetchNewLogs();
+    stepFinished = !!finished;
+    stepStatus.textContent = stepFinished ? 'Finished' : 'Stepped 1 event';
+    if(stepFinished){ await collectResultFromCurrentSim(); }
+  }
+
+  async function stepN(n){
+    n = Math.max(1, Math.min(1000, n|0));
+    for(let i=0; i<n; i++){
+      if(stepFinished) break;
+      await stepOnce();
+    }
+  }
+
+  async function nextDay(){
+    if(!stepActive || stepFinished) return;
+    const code = `
+  import importlib, json
+  hm = importlib.import_module('hunger_main')
+  sim = getattr(hm, '_web_sim', None)
+  prev = getattr(sim, '_step_phase', None)
+  finished = sim.step_once()
+  cur = getattr(sim, '_step_phase', None)
+  json.dumps({'finished': bool(finished), 'prev': prev, 'cur': cur})
+  `;
+    // Advance until we hit the night header (setup_night -> night)
+    for(let guard=0; guard<2000; guard++){
+      const jsonStr = await pyodide.runPythonAsync(code);
+      let r = {finished:false, prev:null, cur:null};
+      try { r = JSON.parse(jsonStr); } catch {}
+      await fetchNewLogs();
+      if(r.finished){ stepFinished = true; break; }
+      if(r.prev === 'setup_night' && r.cur === 'night') break;
+    }
+    if(stepFinished){ await collectResultFromCurrentSim(); }
+  }
+
+  async function nextNight(){
+    if(!stepActive || stepFinished) return;
+    // Ensure we reach the night block first
+    await nextDay();
+    if(stepFinished) return;
+    const code = `
+  import importlib, json
+  hm = importlib.import_module('hunger_main')
+  sim = getattr(hm, '_web_sim', None)
+  prev = getattr(sim, '_step_phase', None)
+  finished = sim.step_once()
+  cur = getattr(sim, '_step_phase', None)
+  json.dumps({'finished': bool(finished), 'prev': prev, 'cur': cur})
+  `;
+    // Consume night until we transition to setup_day
+    for(let guard=0; guard<5000; guard++){
+      const jsonStr = await pyodide.runPythonAsync(code);
+      let r = {finished:false, prev:null, cur:null};
+      try { r = JSON.parse(jsonStr); } catch {}
+      await fetchNewLogs();
+      if(r.finished){ stepFinished = true; break; }
+      if(r.prev === 'night' && r.cur === 'setup_day') break;
+    }
+    if(stepFinished){ await collectResultFromCurrentSim(); }
+  }
+
+  async function untilLeft(x){
+    if(!stepActive || stepFinished) return;
+    x = Math.max(1, x|0);
+    const aliveCode = `
+  import importlib
+  hm = importlib.import_module('hunger_main')
+  sim = getattr(hm, '_web_sim', None)
+  sum(1 for t in sim.tributes if t.alive) if sim else 0
+  `;
+    const stepCode = `
+  import importlib
+  hm = importlib.import_module('hunger_main')
+  sim = getattr(hm, '_web_sim', None)
+  bool(sim.step_once()) if sim else True
+  `;
+    for(let guard=0; guard<10000; guard++){
+      const alive = Number(await pyodide.runPythonAsync(aliveCode)) || 0;
+      if(alive <= x) break;
+      const finished = await pyodide.runPythonAsync(stepCode);
+      await fetchNewLogs();
+      if(finished){ stepFinished = true; break; }
+    }
+    if(stepFinished){ await collectResultFromCurrentSim(); }
+  }
+
+  async function finishRun(){
+    if(!stepActive || stepFinished) return;
+    const stepCode = `
+  import importlib
+  hm = importlib.import_module('hunger_main')
+  sim = getattr(hm, '_web_sim', None)
+  bool(sim.step_once()) if sim else True
+  `;
+    for(let guard=0; guard<50000; guard++){
+      const finished = await pyodide.runPythonAsync(stepCode);
+      await fetchNewLogs();
+      if(finished){ stepFinished = true; break; }
+    }
+    if(stepFinished){ await collectResultFromCurrentSim(); }
+  }
+
+  async function collectResultFromCurrentSim(){
+    // Build the same result JSON the auto-run uses, but from hm._web_sim
+    const py = `
+  import json, datetime, importlib
+  hm = importlib.import_module('hunger_main')
+  sim = getattr(hm, '_web_sim', None)
+  def _sanitize(o):
+    if o is None or isinstance(o, (bool, int, float, str)): return o
+    if isinstance(o, (list, tuple, set)): return [_sanitize(x) for x in list(o)]
+    if isinstance(o, dict): return {str(k): _sanitize(v) for k,v in o.items()}
+    if isinstance(o, datetime.datetime): return o.isoformat()
+    try:
+      from dataclasses import asdict, is_dataclass
+      if is_dataclass(o): return _sanitize(asdict(o))
+    except Exception: pass
+    try:
+      return o.isoformat()
+    except Exception: pass
+    return str(o)
+  alliances = {}
+  try:
+    alliances_obj = getattr(sim, 'alliances', None)
+    to_dict = getattr(alliances_obj, 'to_dict', None)
+    alliances = _sanitize(to_dict()) if callable(to_dict) else _sanitize(alliances_obj)
+  except Exception as e:
+    alliances = {}
+  tributes_out = []
+  try:
+    tribs = getattr(sim, 'tributes', [])
+    to_dict_fn = getattr(sim, '_tribute_to_dict', None)
+    for t in tribs:
+      td = None
+      if callable(to_dict_fn):
+        try: td = to_dict_fn(t)
+        except Exception: td = None
+      if td is None:
+        td = {
+          'key': getattr(t,'key', None),
+          'name': getattr(t,'name',''),
+          'age': getattr(t,'age', None),
+          'gender': getattr(t,'gender', None),
+          'district': getattr(t,'district', None),
+          'alive': bool(getattr(t,'alive', True)),
+          'kills': int(getattr(t,'kills', 0) or 0),
+          'morale': int(getattr(t,'morale', 0) or 0),
+          'notoriety': int(getattr(t,'notoriety', 0) or 0),
+          'status': list(getattr(t,'status', []) or []),
+          'inventory': list(getattr(t,'inventory', []) or []),
+          'cause_of_death': getattr(t,'cause_of_death', None),
+          'hunger': int(getattr(t,'hunger', 0) or 0),
+          'stamina': int(getattr(t,'stamina', 0) or 0),
+          'traits': list(getattr(t,'traits', []) or []),
+          'region': getattr(t,'region', None),
+        }
+      tributes_out.append(_sanitize(td))
+  except Exception as e:
+    tributes_out = []
+  try:
+    death_log = _sanitize(getattr(sim, 'death_log', []))
+  except Exception as e:
+    death_log = []
+  try:
+    stats = _sanitize(getattr(sim, 'history_stats', {}))
+  except Exception as e:
+    stats = {}
+  result = {
+    'seed': getattr(sim, 'seed', None),
+    'max_days': getattr(sim, 'max_days', None),
+    'strict_shutdown': getattr(sim, 'strict_shutdown', None),
+    'log': list(getattr(sim, 'log', []) or []),
+    'alliances': alliances,
+    'tributes': tributes_out,
+    'death_log': death_log,
+    'stats': stats,
+  }
+  import json
+  json.dumps(result)
+  `;
+    try{
+      const res = await pyodide.runPythonAsync(py);
+      lastRunData = JSON.parse(res);
+      downloadBtn.disabled = false;
+      statusEl.textContent = 'Step run complete.';
+    }catch(e){
+      appendLog('Collect error: ' + e);
+    }
+  }
+
+  // Hook step buttons
+  startStepBtn.addEventListener('click', async () => {
+    logEl.textContent='';
+    await startStepMode();
+  });
+  stepOnceBtn.addEventListener('click', async () => { await stepOnce(); });
+  stepNBtn.addEventListener('click', async () => {
+    const n = parseInt(stepNInput.value, 10) || 1;
+    await stepN(n);
+  });
+  nextDayBtn.addEventListener('click', async () => { await nextDay(); });
+  nextNightBtn.addEventListener('click', async () => { await nextNight(); });
+  untilLeftBtn.addEventListener('click', async () => {
+    const x = parseInt(untilLeftInput.value, 10) || 1;
+    await untilLeft(x);
+  });
+  finishBtn.addEventListener('click', async () => { await finishRun(); });
 
 downloadBtn.addEventListener('click', () => {
   if(!lastRunData){ return; }
