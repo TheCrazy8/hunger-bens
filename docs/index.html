@@ -448,31 +448,147 @@ runBtn.addEventListener('click', async () => {
   const pyStrictLiteral = strictVal !== '' && /^\d+$/.test(strictVal) ? strictVal : 'None';
 
   const pyCode = `
-from hunger_main import run_simulation, integrate_custom_content, load_custom_content_from_string
-import json
+import json, datetime
+import importlib
+hm = importlib.import_module('hunger_main')
+
+# Inputs
 seed = ${pySeedLiteral}
 max_days = ${daysVal}
 strict_day = ${pyStrictLiteral}
 roster_text = ${JSON.stringify(rosterTxt)}
 content_text = ${JSON.stringify(contentTxt)}
 
-# Load optional content extensions
-if content_text:
+# Optional content integration (if available)
+try:
+  load_custom_content_from_string = getattr(hm, 'load_custom_content_from_string', None)
+  integrate_custom_content = getattr(hm, 'integrate_custom_content', None)
+  if content_text and load_custom_content_from_string and integrate_custom_content:
     try:
-        custom = load_custom_content_from_string(content_text)
-        integrate_custom_content(custom)
-    except Exception as e:
-        pass
+      custom = load_custom_content_from_string(content_text)
+      integrate_custom_content(custom)
+    except Exception:
+      pass
+except Exception:
+  pass
 
 # Parse optional roster
 roster = None
 if roster_text:
-    try:
-        roster = json.loads(roster_text)
-    except Exception as e:
-        roster = None
+  try:
+    roster = json.loads(roster_text)
+  except Exception:
+    roster = None
 
-result = run_simulation(seed=seed, max_days=max_days, strict_shutdown_day=strict_day, roster=roster)
+# Capture log lines
+log_lines = []
+def capture(line):
+  try:
+    log_lines.append(str(line))
+  except Exception:
+    log_lines.append('[unprintable log line]')
+
+run_simulation = getattr(hm, 'run_simulation')
+
+# Call with flexible kwargs for strict shutdown name
+sim = None
+try:
+  sim = run_simulation(seed=seed, max_days=max_days, roster=roster, strict_shutdown=strict_day, log_callback=capture)
+except TypeError:
+  try:
+    sim = run_simulation(seed=seed, max_days=max_days, roster=roster, strict_shutdown_day=strict_day, log_callback=capture)
+  except TypeError:
+    sim = run_simulation(seed=seed, max_days=max_days, roster=roster, log_callback=capture)
+
+# Sanitization helper
+def _sanitize(o):
+  if o is None or isinstance(o, (bool, int, float, str)):
+    return o
+  if isinstance(o, (list, tuple, set)):
+    return [_sanitize(x) for x in list(o)]
+  if isinstance(o, dict):
+    return {str(k): _sanitize(v) for k,v in o.items()}
+  if isinstance(o, datetime.datetime):
+    return o.isoformat()
+  if hasattr(o, 'isoformat'):
+    try:
+      return o.isoformat()
+    except Exception:
+      pass
+  # Try dataclass asdict-like
+  try:
+    from dataclasses import asdict, is_dataclass
+    if is_dataclass(o):
+      return _sanitize(asdict(o))
+  except Exception:
+    pass
+  return str(o)
+
+# Extract structured data
+alliances = {}
+try:
+  alliances_obj = getattr(sim, 'alliances', None)
+  if alliances_obj is not None:
+    to_dict = getattr(alliances_obj, 'to_dict', None)
+    alliances = _sanitize(to_dict()) if callable(to_dict) else _sanitize(alliances_obj)
+except Exception as e:
+  log_lines.append(f'Alliances extraction error: {e}')
+  alliances = {}
+
+tributes_out = []
+try:
+  tribs = getattr(sim, 'tributes', [])
+  to_dict_fn = getattr(sim, '_tribute_to_dict', None)
+  for t in tribs:
+    td = None
+    if callable(to_dict_fn):
+      try:
+        td = to_dict_fn(t)
+      except Exception:
+        td = None
+    if td is None:
+      # Fallback safe fields
+      td = {
+        'key': getattr(t,'key', None),
+        'name': getattr(t,'name',''),
+        'age': getattr(t,'age', None),
+        'gender': getattr(t,'gender', None),
+        'district': getattr(t,'district', None),
+        'alive': bool(getattr(t,'alive', True)),
+        'kills': int(getattr(t,'kills', 0) or 0),
+        'morale': int(getattr(t,'morale', 0) or 0),
+        'notoriety': int(getattr(t,'notoriety', 0) or 0),
+        'status': list(getattr(t,'status', []) or []),
+        'inventory': list(getattr(t,'inventory', []) or []),
+        'cause_of_death': getattr(t,'cause_of_death', None),
+      }
+    tributes_out.append(_sanitize(td))
+except Exception as e:
+  log_lines.append(f'Tributes extraction error: {e}')
+  tributes_out = []
+
+try:
+  death_log = _sanitize(getattr(sim, 'death_log', []))
+except Exception as e:
+  log_lines.append(f'Death log extraction error: {e}')
+  death_log = []
+
+try:
+  stats = _sanitize(getattr(sim, 'history_stats', {}))
+except Exception as e:
+  log_lines.append(f'Stats extraction error: {e}')
+  stats = {}
+
+result = {
+  'seed': seed,
+  'max_days': max_days,
+  'strict_shutdown': strict_day,
+  'log': log_lines,
+  'alliances': alliances,
+  'tributes': tributes_out,
+  'death_log': death_log,
+  'stats': stats,
+}
 `;
   try {
     await pyodide.runPythonAsync(pyCode + "\nimport json\nresult_json = json.dumps(result)\n");
