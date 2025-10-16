@@ -1565,10 +1565,11 @@ if os.name == 'nt':
         def __init__(self, root):
             self.root = root
             root.title("Hunger Bens Simulator")
-            self._build_widgets()
+            # Initialize state and variables BEFORE building widgets (used by Checkbutton)
             self.current_sim: Optional[HungerBensSimulator] = None
             self.roster_override: Optional[Dict[str, Dict[str, Any]]] = None
             self.plugins_var = tkinter.BooleanVar(value=bool(_CONFIG.get('plugins_enabled', _default_plugins_enabled())))
+            self._build_widgets()
             # Persist when toggled
             try:
                 self.plugins_var.trace_add('write', lambda *args: self._on_plugins_toggle())
