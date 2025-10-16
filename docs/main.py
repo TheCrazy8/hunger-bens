@@ -480,10 +480,8 @@ def event_small_skirmish(tributes: List[Tribute], rng: random.Random, sim) -> Li
     # Make sure tributes are in same or bordering regions
     region_map = {t.region: t for t in tributes}
     valid_pairs = []
-    for a in tributes:
-        for b in tributes:
-            if a != b and (a.region == b.region or b.region in get_adjacent_regions(a.region)):
-                valid_pairs.append((a, b))
+    if a != b and (a.region == b.region or b.region in get_adjacent_regions(a.region)):
+        valid_pairs.append((a, b))
     if not valid_pairs: return []
     # Allies less likely to attack unless betrayal check triggers
     if sim.alliances.is_allied(a, b) and rng.random() < 0.75:
