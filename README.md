@@ -1,6 +1,6 @@
 # Hunger Bens Simulator
 
-Enhanced simulation of whimsical arena events with tributes, morale, notoriety, alliances, and global events.
+Hunger games similator but i added at least one too many features
 
 ## Running (CLI)
 Examples:
