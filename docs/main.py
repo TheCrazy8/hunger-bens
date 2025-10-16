@@ -450,8 +450,34 @@ def event_find_supplies(tributes: List[Tribute], rng: random.Random, sim) -> Lis
         return [f"{t.name} finds {_a_or_an(item)}; sponsors applaud their infamous flair."]
     return [f"{t.name} finds {_a_or_an(item)} and looks pleased."]
 
+def get_adjacent_regions(region: str) -> List[str]:
+    """Return a list of region names adjacent to the given region in the grid."""
+    info = MAP_REGIONS.get(region)
+    if not info:
+        return []
+    col, row = info["grid"]
+    adjacent = []
+    for dc in [-1, 0, 1]:
+        for dr in [-1, 0, 1]:
+            if abs(dc) + abs(dr) != 1:
+                continue  # only cardinal directions
+            ncol, nrow = col + dc, row + dr
+            for rname, rinfo in MAP_REGIONS.items():
+                if rinfo["grid"] == (ncol, nrow):
+                    adjacent.append(rname)
+                    break
+    return adjacent
+
 def event_small_skirmish(tributes: List[Tribute], rng: random.Random, sim) -> List[str]:
     if len(tributes) < 2: return []
+    # Make sure tributes are in same or bordering regions
+    region_map = {t.region: t for t in tributes}
+    valid_pairs = []
+    for a in tributes:
+        for b in tributes:
+            if a != b and (a.region == b.region or b.region in get_adjacent_regions(a.region)):
+                valid_pairs.append((a, b))
+    if not valid_pairs: return []
     # Weighted targeting: higher notoriety more likely to be attacked
     weights = []
     for t in tributes:
