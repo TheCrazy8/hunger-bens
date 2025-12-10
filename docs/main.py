@@ -96,7 +96,7 @@ WEAPON_VERBS = {
     "baguette": "wallops", "glitter bomb": "bedazzles", "garden gnome": "wallops",
     "foam sword": "bonks", "chainsaw": "rips", "umbrella": "jab-pokes", "yo-yo": "whips",
     "fish": "slaps", "harpoon": "skewers", "boomerang": "returns and whacks",
-    "lute": "serenades then whacks", "meteor shard": "slices",
+    "lute": "serenades then whacks", "meteor shard": "slices", "autism": "Overstimulates",
 }
 WEAPONS = set(WEAPON_VERBS.keys()) - {"fists", "rock", "stick"}
 CORNUCOPIA_ITEMS = [
@@ -104,7 +104,7 @@ CORNUCOPIA_ITEMS = [
     "flashlight","shield","spear","helmet","machete","trident","slingshot",
     "net","taser","pan","frying pan","chainsaw","harpoon","boomerang",
     "rubber chicken","baguette","glitter bomb","garden gnome",
-    "foam sword","umbrella","yo-yo","fish","egg","lute",
+    "foam sword","umbrella","yo-yo","fish","egg","lute","autism"
 ]
 SUPPLY_ITEMS = [
     "berries","egg","bandages","water pouch","protein bar","energy drink",
@@ -116,7 +116,7 @@ HAZARDS = [
     "flash flood","earthquake","forest fire","quicksand","sandstorm",
     "swarm of insects","toxic spores","lightning strike","hail barrage",
     "rogue drone","mutant vines","radioactive plume","hypersonic gust",
-    "magnetic storm","memory fog"
+    "magnetic storm","memory fog","suicide",
 ]
 HAZARD_EFFECTS = {
     "acid rain":"burned","falling debris":"crushed","poison mist":"poisoned","lava vent":"scorched",
@@ -124,7 +124,7 @@ HAZARD_EFFECTS = {
     "quicksand":"engulfed","sandstorm":"buried","swarm of insects":"overwhelmed","toxic spores":"choked",
     "lightning strike":"electrocuted","hail barrage":"bludgeoned","rogue drone":"laser‑tagged fatally",
     "mutant vines":"constricted","radioactive plume":"irradiated","hypersonic gust":"rag-dolled",
-    "magnetic storm":"crushed by flying metal","memory fog":"forgot themselves and wandered off",
+    "magnetic storm":"crushed by flying metal","memory fog":"forgot themselves and wandered off","suicide":"killed themself",
 }
 
 # -----------------------------
@@ -132,23 +132,23 @@ HAZARD_EFFECTS = {
 # -----------------------------
 # Biome definitions control map color and slightly bias environmental hazards
 BIOMES_DEF: Dict[str, Dict[str, Any]] = {
-    "Forest":   {"fill": "#1e3b2a", "env_delta": -0.02, "hazards": ["forest fire","toxic spores","swarm of insects"]},
-    "Desert":   {"fill": "#5a4b2c", "env_delta": +0.02, "hazards": ["sandstorm","hail barrage"]},
-    "Swamp":    {"fill": "#243a2a", "env_delta": +0.01, "hazards": ["toxic spores","quicksand","swarm of insects"]},
-    "Marsh":    {"fill": "#2a3a2e", "env_delta": +0.01, "hazards": ["mutant vines","wild animal","swarm of insects"]},
-    "Mountain": {"fill": "#3b3f4a", "env_delta": +0.01, "hazards": ["falling debris","lightning strike","earthquake"]},
-    "Plains":   {"fill": "#2e3b4f", "env_delta":  0.00, "hazards": ["flash flood","hail barrage"]},
-    "Ruins":    {"fill": "#3a2e3f", "env_delta": +0.01, "hazards": ["falling debris","rogue drone"]},
-    "Lake":     {"fill": "#203a4f", "env_delta": -0.01, "hazards": ["flash flood","acid rain"]},
-    "Tundra":   {"fill": "#2f3b3f", "env_delta": +0.01, "hazards": ["hail barrage","hypersonic gust"]},
-    "Volcano":  {"fill": "#4a2e2e", "env_delta": +0.03, "hazards": ["lava vent","falling debris"]},
-    "Pit":   {"fill": "#2e2e2e", "env_delta": +0.02, "hazards": ["falling debris","wild animal"]},
-    "Craters": {"fill": "#3b2e2e", "env_delta": +0.02, "hazards": ["lava vent","wild animal"]},
-    "Flatlands":  {"fill": "#4a4a6e", "env_delta":  0.00, "hazards": ["magnetic storm","falling debris"]},
-    "Hills":    {"fill": "#3b4f2e", "env_delta":  0.00, "hazards": ["wild animal","earthquake"]},
-    "Badlands": {"fill": "#4f3b2e", "env_delta": +0.02, "hazards": ["sandstorm","flash flood"]},
-    "Canyon":  {"fill": "#4a3b2e", "env_delta": +0.01, "hazards": ["falling debris","wild animal"]},
-    "Glacier": {"fill": "#2e4f5a", "env_delta": -0.01, "hazards": ["hail barrage","hypersonic gust"]},
+    "Forest":   {"fill": "#1e3b2a", "env_delta": -0.02, "hazards": ["forest fire","toxic spores","swarm of insects","suicide"]},
+    "Desert":   {"fill": "#5a4b2c", "env_delta": +0.02, "hazards": ["sandstorm","hail barrage","suicide"]},
+    "Swamp":    {"fill": "#243a2a", "env_delta": +0.01, "hazards": ["toxic spores","quicksand","swarm of insects","suicide"]},
+    "Marsh":    {"fill": "#2a3a2e", "env_delta": +0.01, "hazards": ["mutant vines","wild animal","swarm of insects","suicide"]},
+    "Mountain": {"fill": "#3b3f4a", "env_delta": +0.01, "hazards": ["falling debris","lightning strike","earthquake","suicide"]},
+    "Plains":   {"fill": "#2e3b4f", "env_delta":  0.00, "hazards": ["flash flood","hail barrage","suicide"]},
+    "Ruins":    {"fill": "#3a2e3f", "env_delta": +0.01, "hazards": ["falling debris","rogue drone","suicide"]},
+    "Lake":     {"fill": "#203a4f", "env_delta": -0.01, "hazards": ["flash flood","acid rain","suicide"]},
+    "Tundra":   {"fill": "#2f3b3f", "env_delta": +0.01, "hazards": ["hail barrage","hypersonic gust","suicide"]},
+    "Volcano":  {"fill": "#4a2e2e", "env_delta": +0.03, "hazards": ["lava vent","falling debris","suicide"]},
+    "Pit":   {"fill": "#2e2e2e", "env_delta": +0.02, "hazards": ["falling debris","wild animal","suicide"]},
+    "Craters": {"fill": "#3b2e2e", "env_delta": +0.02, "hazards": ["lava vent","wild animal","suicide"]},
+    "Flatlands":  {"fill": "#4a4a6e", "env_delta":  0.00, "hazards": ["magnetic storm","falling debris","suicide"]},
+    "Hills":    {"fill": "#3b4f2e", "env_delta":  0.00, "hazards": ["wild animal","earthquake","suicide"]},
+    "Badlands": {"fill": "#4f3b2e", "env_delta": +0.02, "hazards": ["sandstorm","flash flood","suicide"]},
+    "Canyon":  {"fill": "#4a3b2e", "env_delta": +0.01, "hazards": ["falling debris","wild animal","suicide"]},
+    "Glacier": {"fill": "#2e4f5a", "env_delta": -0.01, "hazards": ["hail barrage","hypersonic gust","suicide"]},
     "Unknown":  {"fill": "#2e3b4f", "env_delta":  0.00, "hazards": []},
 }
 
