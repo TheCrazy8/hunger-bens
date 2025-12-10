@@ -104,6 +104,12 @@
         <tbody id="rosterTableBody"></tbody>
       </table>
     </div>
+    <div class="row">
+      <div class="grow">
+        <label for="rosterFile">Load Roster JSON File</label>
+        <input type="file" id="rosterFile" accept=".json,application/json"/>
+      </div>
+    </div>
 
     <details class="advanced">
       <summary>Advanced: Raw Roster JSON</summary>
@@ -163,6 +169,12 @@
       <label for="content">Content JSON (extend weapons/items/hazards)</label>
       <textarea id="content" placeholder='{"weapons":{"laser spoon":"vaporizes"},"items":["force field"],"hazards":{"gravity well":"spaghettified"}}'></textarea>
     </details>
+    <div class="row">
+      <div class="grow">
+        <label for="contentFile">Load Content JSON File</label>
+        <input type="file" id="contentFile" accept=".json,application/json"/>
+      </div>
+    </div>
   </fieldset>
 
   <fieldset>
@@ -225,6 +237,8 @@ const logEl = document.getElementById('log');
 const runBtn = document.getElementById('runBtn');
 const clearBtn = document.getElementById('clearBtn');
 const downloadBtn = document.getElementById('downloadBtn');
+const rosterFileInput = document.getElementById('rosterFile');
+const contentFileInput = document.getElementById('contentFile');
 // Step controls
 const startStepBtn = document.getElementById('startStepBtn');
 const stepOnceBtn = document.getElementById('stepOnceBtn');
@@ -242,6 +256,8 @@ let simulatorReady = false;
 let stepActive = false;
 let stepFinished = false;
 let lastLogIndex = 0;
+let lastRosterGenerated = '';
+let lastContentGenerated = '';
 
 function appendLog(line){
   const div = document.createElement('div');
@@ -422,6 +438,8 @@ function renderHazards() {
 
 // ---------- Sync builders -> hidden JSON textareas ----------
 function syncBuildersToJSON() {
+  const rosterEl = document.getElementById('roster');
+  const contentEl = document.getElementById('content');
   // Roster
   const rosterType = document.getElementById('rosterType').value;
   let rosterObj;
@@ -436,7 +454,11 @@ function syncBuildersToJSON() {
   } else {
     rosterObj = rosterData.slice();
   }
-  document.getElementById('roster').value = JSON.stringify(rosterObj, null, 2);
+  const rosterText = JSON.stringify(rosterObj, null, 2);
+  if (rosterEl.value.trim() === '' || rosterEl.value === lastRosterGenerated) {
+    rosterEl.value = rosterText;
+    lastRosterGenerated = rosterText;
+  }
 
   // Content
   const weapons = {};
@@ -448,7 +470,107 @@ function syncBuildersToJSON() {
     items: itemsData.slice(),
     hazards
   };
-  document.getElementById('content').value = JSON.stringify(contentObj, null, 2);
+  const contentText = JSON.stringify(contentObj, null, 2);
+  if (contentEl.value.trim() === '' || contentEl.value === lastContentGenerated) {
+    contentEl.value = contentText;
+    lastContentGenerated = contentText;
+  }
+}
+
+function readFileAsText(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result || '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
+}
+
+function applyRosterJsonText(text){
+  const target = document.getElementById('roster');
+  target.value = text;
+  lastRosterGenerated = text;
+  try{
+    const parsed = JSON.parse(text);
+    const rosterTypeSelect = document.getElementById('rosterType');
+    if(Array.isArray(parsed)){
+      if(rosterTypeSelect) rosterTypeSelect.value = 'list';
+      rosterData.length = 0;
+      parsed.forEach((entry, idx) => {
+        if(entry && typeof entry === 'object'){
+          const ageVal = Number(entry.age);
+          const distVal = Number(entry.district);
+          rosterData.push({
+            key: entry.key || `t${idx+1}`,
+            name: entry.name || '',
+            age: Number.isFinite(ageVal) ? ageVal : undefined,
+            district: Number.isFinite(distVal) ? distVal : undefined,
+          });
+        }
+      });
+      renderRoster();
+    } else if(parsed && typeof parsed === 'object'){
+      if(rosterTypeSelect) rosterTypeSelect.value = 'dict';
+      rosterData.length = 0;
+      Object.entries(parsed).forEach(([k,v]) => {
+        if(v && typeof v === 'object'){
+          const ageVal = Number(v.age);
+          const distVal = Number(v.district);
+          rosterData.push({
+            key: k,
+            name: v.name || '',
+            age: Number.isFinite(ageVal) ? ageVal : undefined,
+            district: Number.isFinite(distVal) ? distVal : undefined,
+          });
+        }
+      });
+      renderRoster();
+    }
+    target.value = JSON.stringify(parsed, null, 2);
+    lastRosterGenerated = target.value;
+  }catch(err){
+    // Keep user-provided text untouched so they can correct malformed JSON manually.
+    console.warn('Roster JSON parse failed; leaving text as-is', err);
+  }
+}
+
+function applyContentJsonText(text){
+  const target = document.getElementById('content');
+  target.value = text;
+  lastContentGenerated = text;
+  try{
+    const parsed = JSON.parse(text);
+    weaponsData.length = 0;
+    itemsData.length = 0;
+    hazardsData.length = 0;
+    if(parsed && typeof parsed === 'object'){
+      if(parsed.weapons && typeof parsed.weapons === 'object'){
+        Object.entries(parsed.weapons).forEach(([name, desc]) => {
+          if(typeof name === 'string'){
+            weaponsData.push({name, desc: typeof desc === 'string' ? desc : ''});
+          }
+        });
+      }
+      if(Array.isArray(parsed.items)){
+        parsed.items.forEach(it => { if(typeof it === 'string') itemsData.push(it); });
+      }
+      if(parsed.hazards && typeof parsed.hazards === 'object'){
+        Object.entries(parsed.hazards).forEach(([name, desc]) => {
+          if(typeof name === 'string'){
+            hazardsData.push({name, desc: typeof desc === 'string' ? desc : ''});
+          }
+        });
+      }
+      renderWeapons();
+      renderItems();
+      renderHazards();
+      target.value = JSON.stringify(parsed, null, 2);
+      lastContentGenerated = target.value;
+    }
+  }catch(err){
+    // Keep user-provided text untouched so they can correct malformed JSON manually.
+    console.warn('Content JSON parse failed; leaving text as-is', err);
+  }
 }
 
 function escapeHtml(s) {
@@ -460,6 +582,30 @@ document.getElementById('addTributeBtn').addEventListener('click', addTribute);
 document.getElementById('addWeaponBtn').addEventListener('click', addWeapon);
 document.getElementById('addItemBtn').addEventListener('click', addItem);
 document.getElementById('addHazardBtn').addEventListener('click', addHazard);
+if (rosterFileInput) {
+  rosterFileInput.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    try{
+      const text = await readFileAsText(file);
+      applyRosterJsonText(text);
+    }catch(err){
+      alert('Failed to read roster file: ' + (err && err.message ? err.message : err));
+    }
+  });
+}
+if (contentFileInput) {
+  contentFileInput.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    try{
+      const text = await readFileAsText(file);
+      applyContentJsonText(text);
+    }catch(err){
+      alert('Failed to read content file: ' + (err && err.message ? err.message : err));
+    }
+  });
+}
 
 // ---------- Pyodide / Simulator ----------
 async function initPyodide(){
