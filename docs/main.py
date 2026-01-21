@@ -124,7 +124,7 @@ HAZARD_EFFECTS = {
     "quicksand":"engulfed","sandstorm":"buried","swarm of insects":"overwhelmed","toxic spores":"choked",
     "lightning strike":"electrocuted","hail barrage":"bludgeoned","rogue drone":"laser‑tagged fatally",
     "mutant vines":"constricted","radioactive plume":"irradiated","hypersonic gust":"rag-dolled",
-    "magnetic storm":"crushed by flying metal","memory fog":"forgot themselves and wandered off","suicide":"killed themself",
+    "magnetic storm":"crushed by flying metal","memory fog":"forgot themselves and wandered off","suicide":"overcome",
 }
 
 # -----------------------------
